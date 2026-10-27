@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>КИС керамика — учёт остатков</title>
+<style>
+:root {
+  --primary: #1B4332;
+  --primary-dark: #0D2818;
+  --accent: #D4703A;
+  --bg: #FAF5EF;
+  --card: #FFFFFF;
+  --text: #2C1810;
+  --muted: #8B7355;
+  --success: #2D6A4F;
+  --warning: #D4943A;
+  --error: #C0392B;
+  --border: #E8DFD0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding-bottom: 70px;
+}
+.header {
+  background: var(--primary);
+  color: white;
+  padding: 14px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.header h1 { font-size: 18px; font-weight: 600; }
+.header .subtitle { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+.container { max-width: 600px; margin: 0 auto; padding: 12px; }
+
+/* Tabs */
+.tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 100;
+}
+.tab {
+  flex: 1;
+  padding: 10px 4px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  border: none;
+  background: none;
+  transition: color 0.2s;
+}
+.tab.active { color: var(--primary); font-weight: 600; }
+.tab-icon { font-size: 20px; display: block; margin-bottom: 2px; }
+
+/* Cards */
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.card-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--primary); }
+
+/* Scan view */
+.scan-area {
+  background: #1a1a1a;
+  border-radius: 12px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 14px;
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.scan-area video { width: 100%; height: 100%; object-fit: cover; }
+.scan-placeholder { text-align: center; padding: 20px; }
+.scan-result {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 2px solid var(--success);
+  display: none;
+}
+.scan-result.show { display: block; }
+.scan-result .sku { font-size: 12px; color: var(--muted); }
+.scan-result .name { font-size: 18px; font-weight: 600; margin: 4px 0; }
+.scan-result .info { display: flex; justify-content: space-between; margin-top: 8px; }
+.scan-result .price { font-size: 20px; font-weight: 700; color: var(--accent); }
+.scan-result .stock { font-size: 14px; color: var(--muted); }
+.scan-result .stock.low { color: var(--warning); font-weight: 600; }
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.btn:active { opacity: 0.8; }
+.btn-primary { background: var(--primary); color: white; }
+.btn-secondary { background: var(--border); color: var(--text); }
+.btn-danger { background: var(--error); color: white; }
+.btn-success { background: var(--success); color: white; }
+.btn + .btn { margin-top: 8px; }
+
+.input-group { margin-bottom: 12px; }
+.input-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.input-group input, .input-group select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 16px;
+  background: white;
+}
+.input-group input:focus, .input-group select:focus { outline: 2px solid var(--primary); border-color: transparent; }
+
+/* Product list */
+.product-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.product-item:last-child { border-bottom: none; }
+.product-item .info .name { font-size: 14px; font-weight: 500; }
+.product-item .info .sku { font-size: 11px; color: var(--muted); }
+.product-item .stock-badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.stock-badge.ok { background: #E8F5E9; color: var(--success); }
+.stock-badge.low { background: #FFF3E0; color: var(--warning); }
+.stock-badge.out { background: #FFEBEE; color: var(--error); }
+
+/* Sales */
+.sale-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.sale-item:last-child { border-bottom: none; }
+.sale-item .time { color: var(--muted); font-size: 11px; }
+.sale-item .amount { font-weight: 600; color: var(--accent); }
+
+.stats-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.stat-box {
+  flex: 1;
+  background: var(--card);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+.stat-box .value { font-size: 22px; font-weight: 700; color: var(--primary); }
+.stat-box .label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: #333;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 200;
+  transition: transform 0.3s;
+  white-space: nowrap;
+  max-width: 90vw;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+/* Hidden */
+.hidden { display: none !important; }
+
+/* Search */
+.search-box { margin-bottom: 12px; }
+.search-box input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 300;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 20px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal h2 { font-size: 18px; margin-bottom: 16px; color: var(--primary); }
+.modal .btn { margin-top: 8px; }
+
+/* Sales buttons - compact */
+.sales-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.sales-actions .btn {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 11px;
+  border-radius: 6px;
+  min-width: 70px;
+}
+
+/* Responsive */
+@media (min-width: 600px) {
+  .container { padding: 20px; }
+  .scan-area { height: 300px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🏺 КИС керамика</h1>
+  <div class="subtitle">Учёт остатков · <span id="today"></span></div>
+</div>
+
+<div class="container">
+
+  <!-- SCAN TAB -->
+  <div id="tab-scan" class="tab-content">
+    <div class="scan-area" id="scanArea">
+      <div class="scan-placeholder" id="scanPlaceholder">
+        📷 Камера не запущена<br>
+        <small>Нажмите «Включить камеру» ниже</small>
+      </div>
+      <video id="video" class="hidden" autoplay playsinline muted></video>
+    </div>
+
+    <button class="btn btn-secondary" id="btnStartCamera">📷 Включить камеру</button>
+
+    <div class="card" style="margin-top: 12px;">
+      <div class="card-title">Или введите артикул вручную</div>
+      <div class="input-group">
+        <input type="text" id="manualSku" placeholder="Например: KM-001" autocomplete="off">
+      </div>
+      <button class="btn btn-primary" id="btnManualFind">Найти товар</button>
+    </div>
+
+    <div class="scan-result" id="scanResult">
+      <div class="sku" id="resultSku"></div>
+      <div class="name" id="resultName"></div>
+      <div class="info">
+        <span class="price" id="resultPrice"></span>
+        <span class="stock" id="resultStock"></span>
+      </div>
+      <button class="btn btn-primary" id="btnSold" style="margin-top: 12px;">✅ Продано</button>
+      <button class="btn btn-secondary" id="btnCancel">Отмена</button>
+    </div>
+  </div>
+
+  <!-- PRODUCTS TAB -->
+  <div id="tab-products" class="tab-content hidden">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div class="search-box" style="flex: 1; margin-right: 8px; margin-bottom: 0;">
+        <input type="text" id="searchProducts" placeholder="🔍 Поиск по названию или артикулу...">
+      </div>
+      <button id="btnDeleteProducts" style="background: var(--error); color: white; border: none; border-radius: 8px; width: 44px; height: 44px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" title="Удалить товары">🗑️</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Товары (<span id="productCount">0</span>)</div>
+      <div id="productList"></div>
+    </div>
+    <button class="btn btn-primary" id="btnAddProduct">➕ Добавить товар</button>
+    <button class="btn btn-secondary" id="btnPrintQr">🖨️ Распечатать QR-код</button>
+  </div>
+
+  <!-- SALES TAB -->
+  <div id="tab-sales" class="tab-content hidden">
+    <div class="sales-actions">
+      <button class="btn btn-success" id="btnOpenShift" style="font-size: 11px; padding: 6px;">▶️ Открыть смену</button>
+      <button class="btn btn-danger" id="btnCloseShift" style="font-size: 11px; padding: 6px;">⏹️ Закрыть смену</button>
+      <button class="btn btn-primary" id="btnSendShift" style="font-size: 11px; padding: 6px;">📤 Синхронизировать</button>
+      <button class="btn btn-secondary" id="btnUndoLast" style="font-size: 11px; padding: 6px;">↩️ Отменить</button>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="value" id="statTodayCount">0</div>
+        <div class="label">Продаж сегодня</div>
+      </div>
+      <div class="stat-box">
+        <div class="value" id="statTodaySum">0 ₽</div>
+        <div class="label">Выручка сегодня</div>
+      </div>
+      <div class="stat-box">
+        <div class="value" id="statTotalCount">0</div>
+        <div class="label">Всего продаж</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Последние продажи</div>
+      <div id="salesList"></div>
+    </div>
+  </div>
+
+  <!-- SETTINGS TAB -->
+  <div id="tab-settings" class="tab-content hidden">
+    <div class="card">
+      <div class="card-title">🔗 Google Sheets</div>
+      <p style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">
+        Двусторонняя синхронизация с таблицей.
+      </p>
+      <div id="sheetStatus" style="font-size: 12px; margin-bottom: 10px; color: var(--muted);">
+        Статус: <span id="sheetStatusText">подключено</span>
+      </div>
+      <button class="btn btn-primary" id="btnSyncProducts">🔄 Синхронизировать товары</button>
+    </div>
+    <div class="card">
+      <div class="card-title">ℹ️ О программе</div>
+      <p style="font-size: 13px; color: var(--muted);">
+        КИС керамика v2.0 · Android-версия<br>
+        Двусторонняя синхронизация с Google Sheets<br>
+        <span id="aboutSheetStatus" style="color: var(--muted);"></span>
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<!-- Tab Navigation -->
+<div class="tabs">
+  <button class="tab active" data-tab="scan">
+    <span class="tab-icon">📷</span>Скан
+  </button>
+  <button class="tab" data-tab="products">
+    <span class="tab-icon">🏺</span>Товары
+  </button>
+  <button class="tab" data-tab="sales">
+    <span class="tab-icon">💰</span>Продажи
+  </button>
+  <button class="tab" data-tab="settings">
+    <span class="tab-icon">⚙️</span>Ещё
+  </button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Modal: Добавить товар -->
+<div class="modal-overlay" id="modalAddProduct">
+  <div class="modal">
+    <h2>➕ Добавить товар</h2>
+    <div class="input-group">
+      <label>Артикул *</label>
+      <input type="text" id="newSku" placeholder="Например: KM-016" style="text-transform: uppercase;">
+    </div>
+    <div class="input-group">
+      <label>Название *</label>
+      <input type="text" id="newName" placeholder="Название товара">
+    </div>
+    <div class="input-group">
+      <label>Цена (₽) *</label>
+      <input type="number" id="newPrice" placeholder="0" min="0">
+    </div>
+    <div class="input-group">
+      <label>Остаток (шт)</label>
+      <input type="number" id="newStock" placeholder="0" min="0">
+    </div>
+    <button class="btn btn-primary" id="btnSaveProduct">💾 Сохранить товар</button>
+    <button class="btn btn-secondary" id="btnCancelAdd">Отмена</button>
+  </div>
+</div>
+
+<!-- Modal: Удаление товаров -->
+<div class="modal-overlay" id="modalDelete">
+  <div class="modal">
+    <h2>🗑️ Удалить товары</h2>
+    <p style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">Выберите товары для удаления:</p>
+    <div id="deleteList" style="max-height: 300px; overflow-y: auto; margin-bottom: 12px;"></div>
+    <button class="btn btn-danger" id="btnConfirmDelete">🗑️ Удалить выбранные</button>
+    <button class="btn btn-secondary" id="btnCancelDelete">Отмена</button>
+  </div>
+</div>
+
+<!-- Modal: Печать QR -->
+<div class="modal-overlay" id="modalPrintQr">
+  <div class="modal">
+    <h2>🖨️ Печать QR-кода</h2>
+    <div class="input-group">
+      <label>Выберите товар</label>
+      <select id="qrProductSelect"></select>
+    </div>
+    <div id="qrPreview" style="text-align: center; margin: 16px 0; min-height: 200px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border-radius: 8px;"></div>
+    <div id="qrProductInfo" style="text-align: center; margin-bottom: 12px; font-size: 14px; color: var(--muted);"></div>
+    <button class="btn btn-primary" id="btnDoPrint">🖨️ Печать</button>
+    <button class="btn btn-secondary" id="btnCancelPrint">Отмена</button>
+  </div>
+</div>
+
+<script>
+// ═══ ГЕНЕРАТОР QR-КОДОВ ═══
+function generateQR(text, size) {
+  size = size || 200;
+  var encoded = encodeURIComponent(text);
+  return 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encoded;
+}
+
+// ═══ ДАННЫЕ ТОВАРОВ ═══
+const PRODUCTS = [
+    {"sku": "KM-001", "name": "Кружка \"Мята\" 350мл", "price": 1200, "stock": 25},
+    {"sku": "KM-002", "name": "Кружка \"Лаванда\" 350мл", "price": 1200, "stock": 25},
+    {"sku": "KM-003", "name": "Кружка \"Графит\" 350мл", "price": 1200, "stock": 20},
+    {"sku": "KM-004", "name": "Тарелка \"Облако\" 24см", "price": 1800, "stock": 15},
+    {"sku": "KM-005", "name": "Тарелка \"Солнце\" 24см", "price": 1800, "stock": 15},
+    {"sku": "KM-006", "name": "Тарелка \"Песок\" 24см", "price": 1800, "stock": 15},
+    {"sku": "KM-007", "name": "Ваза \"Дуб\" 22см", "price": 3500, "stock": 8},
+    {"sku": "KM-008", "name": "Ваза \"Берёза\" 18см", "price": 2800, "stock": 10},
+    {"sku": "KM-009", "name": "Кашпо \"Папоротник\" 14см", "price": 900, "stock": 30},
+    {"sku": "KM-010", "name": "Кашпо \"Суккулент\" 10см", "price": 700, "stock": 35},
+    {"sku": "KM-011", "name": "Чайник \"Туман\" 1л", "price": 4500, "stock": 5},
+    {"sku": "KM-012", "name": "Сахарник \"Ягода\"", "price": 1500, "stock": 12},
+    {"sku": "KM-013", "name": "Салатник \"Море\" 20см", "price": 2200, "stock": 10},
+    {"sku": "KM-014", "name": "Супница \"Лес\" 1.5л", "price": 3800, "stock": 6},
+    {"sku": "KM-015", "name": "Блюдо \"Аист\" 30см", "price": 2500, "stock": 8}
+];
+
+// ═══ СОСТОЯНИЕ ПРИЛОЖЕНИЯ ═══
+let products = [];
+let sales = [];
+let currentScan = null;
+let stream = null;
+let detector = null;
+let scanning = false;
+let sheetUrl = localStorage.getItem('ceramics_sheet_url') || 'https://script.google.com/macros/s/AKfycbyx9OXBRT1XOGphF8U7_fc0wtEDncgp6RSyNnP1Zlp1H0FbUNORa9qAAOBoIIM_xDAH/exec';
+let sheetConnected = true;
+let currentShiftId = null;
+let cameraMonitorInterval = null;
+
+// ═══ ИНИЦИАЛИЗАЦИЯ ═══
+function init() {
+  loadData();
+  renderProducts();
+  renderSales();
+  updateStats();
+  setupTabs();
+  setupScan();
+  setupProducts();
+  setupSales();
+  setupSettings();
+  document.getElementById('today').textContent = new Date().toLocaleDateString('ru-RU');
+  updateAboutSheetStatus();
+  loadProductsFromSheet();
+}
+
+function loadData() {
+  const savedProducts = localStorage.getItem('ceramics_products');
+  const savedSales = localStorage.getItem('ceramics_sales');
+  products = savedProducts ? JSON.parse(savedProducts) : [...PRODUCTS];
+  sales = savedSales ? JSON.parse(savedSales) : [];
+}
+
+function saveData() {
+  localStorage.setItem('ceramics_products', JSON.stringify(products));
+  localStorage.setItem('ceramics_sales', JSON.stringify(sales));
+}
+
+// ═══ УТИЛИТЫ ═══
+function findProduct(sku) {
+  return products.find(p => p.sku.toLowerCase() === sku.toLowerCase());
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 800;
+    g.gain.value = 0.1;
+    o.start();
+    o.stop(ctx.currentTime + 0.1);
+  } catch(e) {}
+}
+
+// ═══ ВКЛАДКИ ═══
+function setupTabs() {
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+      document.getElementById('tab-' + tab.dataset.tab).classList.remove('hidden');
+    });
+  });
+}
+
+// ═══ СКАНИРОВАНИЕ ═══
+function setupScan() {
+  document.getElementById('btnStartCamera').addEventListener('click', toggleCamera);
+  document.getElementById('btnManualFind').addEventListener('click', manualFind);
+  document.getElementById('btnSold').addEventListener('click', confirmSale);
+  document.getElementById('btnCancel').addEventListener('click', cancelScan);
+
+  document.getElementById('manualSku').addEventListener('keydown', e => {
+    if (e.key === 'Enter') manualFind();
+  });
+
+  const scanTab = document.querySelector('.tab[data-tab="scan"]');
+  scanTab.addEventListener('click', () => {
+    if (!stream) {
+      setTimeout(() => autoStartCamera(), 300);
+    }
+  });
+}
+
+async function toggleCamera() {
+  if (stream) {
+    stopCamera();
+    return;
+  }
+  await startCamera();
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    await video.play();
+    video.classList.remove('hidden');
+    document.getElementById('scanPlaceholder').classList.add('hidden');
+    document.getElementById('btnStartCamera').textContent = '⏹ Выключить камеру';
+
+    if ('BarcodeDetector' in window) {
+      detector = new BarcodeDetector({ formats: ['qr_code'] });
+      scanning = true;
+      scanLoop();
+    }
+    monitorCamera();
+  } catch (e) {
+    console.error('Camera error:', e);
+    if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+      showToast('❌ Разрешите доступ к камере в настройках браузера');
+    } else if (e.name === 'NotFoundError') {
+      showToast('❌ Камера не найдена');
+    } else {
+      showToast('❌ Ошибка: ' + e.message);
+    }
+  }
+}
+
+async function autoStartCamera() {
+  if (stream) return;
+  await startCamera();
+}
+
+function stopCamera() {
+  scanning = false;
+  if (cameraMonitorInterval) {
+    clearInterval(cameraMonitorInterval);
+    cameraMonitorInterval = null;
+  }
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  detector = null;
+  document.getElementById('video').classList.add('hidden');
+  document.getElementById('scanPlaceholder').classList.remove('hidden');
+  document.getElementById('btnStartCamera').textContent = '📷 Включить камеру';
+}
+
+function monitorCamera() {
+  if (cameraMonitorInterval) clearInterval(cameraMonitorInterval);
+  cameraMonitorInterval = setInterval(() => {
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    if (track.readyState === 'ended') {
+      showToast('⚠️ Камера отключилась. Перезапускаем...');
+      stopCamera();
+      setTimeout(() => autoStartCamera(), 500);
+    }
+  }, 2000);
+}
+
+async function scanLoop() {
+  if (!scanning || !detector) return;
+  const video = document.getElementById('video');
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    try {
+      const barcodes = await detector.detect(video);
+      if (barcodes.length > 0) {
+        handleScan(barcodes[0].rawValue);
+      }
+    } catch(e) {
+      // skip
+    }
+  }
+  setTimeout(scanLoop, 200);
+}
+
+function handleScan(code) {
+  const product = findProduct(code.trim());
+  if (product) {
+    showScanResult(product);
+    beep();
+  } else {
+    showToast('❌ Товар не найден: ' + code);
+  }
+}
+
+function manualFind() {
+  const input = document.getElementById('manualSku');
+  const code = input.value.trim();
+  if (!code) return;
+  handleScan(code);
+  input.value = '';
+}
+
+function showScanResult(product) {
+  currentScan = product;
+  document.getElementById('resultSku').textContent = product.sku;
+  document.getElementById('resultName').textContent = product.name;
+  document.getElementById('resultPrice').textContent = product.price.toLocaleString('ru-RU') + ' ₽';
+  const stockEl = document.getElementById('resultStock');
+  stockEl.textContent = 'Остаток: ' + product.stock;
+  stockEl.className = 'stock' + (product.stock <= 3 ? ' low' : '');
+  document.getElementById('scanResult').classList.add('show');
+}
+
+function confirmSale() {
+  if (!currentScan) return;
+  const p = currentScan;
+  if (p.stock <= 0) {
+    showToast('❌ Нет в наличии!');
+    return;
+  }
+  p.stock--;
+  const sale = {
+    sku: p.sku,
+    name: p.name,
+    price: p.price,
+    qty: 1,
+    timestamp: new Date().toISOString(),
+    synced: false
+  };
+  sales.unshift(sale);
+  saveData();
+  showToast('✅ ' + p.name + ' — продано!');
+  cancelScan();
+  renderProducts();
+  renderSales();
+  updateStats();
+  if (sheetConnected && sheetUrl) {
+    sendSaleToSheet(sale);
+  }
+}
+
+function cancelScan() {
+  currentScan = null;
+  document.getElementById('scanResult').classList.remove('show');
+}
+
+// ═══ ТОВАРЫ ═══
+function setupProducts() {
+  document.getElementById('searchProducts').addEventListener('input', renderProducts);
+  document.getElementById('btnAddProduct').addEventListener('click', openAddModal);
+  document.getElementById('btnCancelAdd').addEventListener('click', closeAddModal);
+  document.getElementById('btnSaveProduct').addEventListener('click', saveNewProduct);
+  document.getElementById('btnPrintQr').addEventListener('click', openPrintModal);
+  document.getElementById('btnCancelPrint').addEventListener('click', closePrintModal);
+  document.getElementById('btnDoPrint').addEventListener('click', printQrCode);
+  document.getElementById('qrProductSelect').addEventListener('change', renderQrPreview);
+  document.getElementById('btnDeleteProducts').addEventListener('click', openDeleteModal);
+  document.getElementById('btnConfirmDelete').addEventListener('click', confirmDelete);
+  document.getElementById('btnCancelDelete').addEventListener('click', closeDeleteModal);
+}
+
+function renderProducts() {
+  const query = (document.getElementById('searchProducts').value || '').toLowerCase();
+  const filtered = products.filter(p =>
+    p.name.toLowerCase().includes(query) || p.sku.toLowerCase().includes(query)
+  );
+  document.getElementById('productCount').textContent = products.length;
+
+  const list = document.getElementById('productList');
+  if (filtered.length === 0) {
+    list.innerHTML = '<p style="color: var(--muted); text-align: center; padding: 20px;">Товары не найдены</p>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(p => {
+    const badgeClass = p.stock === 0 ? 'out' : p.stock <= 3 ? 'low' : 'ok';
+    const badgeText = p.stock === 0 ? 'Нет' : p.stock;
+    return '<div class="product-item">' +
+      '<div class="info">' +
+        '<div class="name">' + p.name + '</div>' +
+        '<div class="sku">' + p.sku + ' · ' + p.price.toLocaleString('ru-RU') + ' ₽</div>' +
+      '</div>' +
+      '<span class="stock-badge ' + badgeClass + '">' + badgeText + ' шт</span>' +
+    '</div>';
+  }).join('');
+}
+
+function openAddModal() {
+  document.getElementById('newSku').value = '';
+  document.getElementById('newName').value = '';
+  document.getElementById('newPrice').value = '';
+  document.getElementById('newStock').value = '';
+  document.getElementById('modalAddProduct').classList.add('show');
+  document.getElementById('newSku').focus();
+}
+
+function closeAddModal() {
+  document.getElementById('modalAddProduct').classList.remove('show');
+}
+
+async function saveNewProduct() {
+  const sku = document.getElementById('newSku').value.trim().toUpperCase();
+  const name = document.getElementById('newName').value.trim();
+  const price = parseInt(document.getElementById('newPrice').value, 10) || 0;
+  const stock = parseInt(document.getElementById('newStock').value, 10) || 0;
+  
+  if (!sku || !name) {
+    showToast('❌ Заполните артикул и название');
+    return;
+  }
+  if (findProduct(sku)) {
+    showToast('❌ Такой артикул уже есть');
+    return;
+  }
+  
+  products.push({ sku, name, price, stock });
+  saveData();
+  renderProducts();
+  closeAddModal();
+  showToast('✅ Товар добавлен: ' + name);
+  
+  if (sheetConnected && sheetUrl) {
+    try {
+      await fetch(sheetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'updateStock', sku, name, price, stock })
+      });
+    } catch (e) { console.error('Sheets sync error:', e); }
+  }
+}
+
+function openDeleteModal() {
+  if (products.length === 0) {
+    showToast('Нет товаров для удаления');
+    return;
+  }
+  const list = document.getElementById('deleteList');
+  list.innerHTML = products.map(p => 
+    '<label style="display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer;">' +
+      '<input type="checkbox" class="delete-check" value="' + p.sku + '" style="margin-right: 10px; width: 18px; height: 18px;">' +
+      '<span style="flex: 1;">' +
+        '<div style="font-weight: 500;">' + p.name + '</div>' +
+        '<div style="font-size: 12px; color: var(--muted);">' + p.sku + ' · ' + p.price.toLocaleString('ru-RU') + ' ₽ · ' + p.stock + ' шт</div>' +
+      '</span>' +
+    '</label>'
+  ).join('');
+  document.getElementById('modalDelete').classList.add('show');
+}
+
+function closeDeleteModal() {
+  document.getElementById('modalDelete').classList.remove('show');
+}
+
+async function confirmDelete() {
+  const checks = document.querySelectorAll('.delete-check:checked');
+  if (checks.length === 0) {
+    showToast('Выберите товары для удаления');
+    return;
+  }
+  if (!confirm('Удалить ' + checks.length + ' товара(ов)?')) return;
+  
+  const toDelete = Array.from(checks).map(c => c.value);
+  products = products.filter(p => !toDelete.includes(p.sku));
+  saveData();
+  renderProducts();
+  closeDeleteModal();
+  showToast('🗑️ Удалено: ' + toDelete.length);
+  
+  if (sheetConnected && sheetUrl) {
+    try {
+      await fetch(sheetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'syncProducts', products })
+      });
+    } catch (e) { console.error('Sheets sync error:', e); }
+  }
+}
+
+// ═══ ПЕЧАТЬ QR ═══
+function openPrintModal() {
+  if (products.length === 0) {
+    showToast('Нет товаров для печати');
+    return;
+  }
+  const select = document.getElementById('qrProductSelect');
+  select.innerHTML = products.map(p => 
+    '<option value="' + p.sku + '">' + p.sku + ' — ' + p.name + '</option>'
+  ).join('');
+  document.getElementById('modalPrintQr').classList.add('show');
+  renderQrPreview();
+}
+
+function closePrintModal() {
+  document.getElementById('modalPrintQr').classList.remove('show');
+}
+
+function renderQrPreview() {
+  const sku = document.getElementById('qrProductSelect').value;
+  const preview = document.getElementById('qrPreview');
+  const info = document.getElementById('qrProductInfo');
+  preview.innerHTML = '';
+  if (sku) {
+    const product = findProduct(sku);
+    if (product) {
+      info.innerHTML = '<strong>' + product.name + '</strong><br>' + product.price.toLocaleString('ru-RU') + ' ₽ · Остаток: ' + product.stock + ' шт';
+      const dataUrl = generateQR(sku, 200);
+      if (dataUrl) {
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.width = 180;
+        img.height = 180;
+        img.style.display = 'block';
+        img.style.margin = '0 auto';
+        preview.appendChild(img);
+      }
+    }
+  } else {
+    info.textContent = 'Выберите товар';
+  }
+}
+
+function printQrCode() {
+  const sku = document.getElementById('qrProductSelect').value;
+  if (!sku) return;
+  const product = findProduct(sku);
+  if (!product) return;
+  
+  const qrDataUrl = generateQR(sku, 200);
+  if (!qrDataUrl) {
+    showToast('❌ Ошибка генерации QR-кода');
+    return;
+  }
+  
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(
+    '<html><head><title>QR-код: ' + sku + '</title>' +
+    '<style>body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;padding:20px;}' +
+    '.label{border:1px solid #ccc;padding:20px;text-align:center;margin-top:20px;}' +
+    'h2{margin:0 0 10px;}p{margin:5px 0;}img{display:block;margin:0 auto;}</style></head>' +
+    '<body><img src="' + qrDataUrl + '" width="200" height="200">' +
+    '<div class="label"><h2>' + product.name + '</h2><p><strong>' + product.sku + '</strong></p>' +
+    '<p>' + product.price.toLocaleString('ru-RU') + ' ₽</p></div>' +
+    '<script>window.onload=function(){window.print();}<\/script></body></html>'
+  );
+  printWindow.document.close();
+}
+
+// ═══ ПРОДАЖИ ═══
+function setupSales() {
+  document.getElementById('btnUndoLast').addEventListener('click', undoLastSale);
+  document.getElementById('btnSendShift').addEventListener('click', sendShiftToSheet);
+  document.getElementById('btnOpenShift').addEventListener('click', openShift);
+  document.getElementById('btnCloseShift').addEventListener('click', closeShift);
+}
+
+function renderSales() {
+  const list = document.getElementById('salesList');
+  if (sales.length === 0) {
+    list.innerHTML = '<p style="color: var(--muted); text-align: center; padding: 20px;">Продаж пока нет</p>';
+    return;
+  }
+  list.innerHTML = sales.slice(0, 50).map(s => {
+    const d = new Date(s.timestamp);
+    return '<div class="sale-item">' +
+      '<div><div>' + s.name + '</div>' +
+      '<div class="time">' + d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</div></div>' +
+      '<span class="amount">+' + s.price.toLocaleString('ru-RU') + ' ₽</span>' +
+    '</div>';
+  }).join('');
+}
+
+function updateStats() {
+  const today = new Date().toDateString();
+  const todaySales = sales.filter(s => new Date(s.timestamp).toDateString() === today);
+  const todayCount = todaySales.reduce((sum, s) => sum + s.qty, 0);
+  const todaySum = todaySales.reduce((sum, s) => sum + s.price * s.qty, 0);
+  document.getElementById('statTodayCount').textContent = todayCount;
+  document.getElementById('statTodaySum').textContent = todaySum.toLocaleString('ru-RU') + ' ₽';
+  document.getElementById('statTotalCount').textContent = sales.length;
+}
+
+function undoLastSale() {
+  if (sales.length === 0) { showToast('Нет продаж для отмены'); return; }
+  const last = sales.shift();
+  const p = findProduct(last.sku);
+  if (p) p.stock++;
+  saveData();
+  renderProducts();
+  renderSales();
+  updateStats();
+  showToast('↩️ Продажа отменена: ' + last.name);
+}
+
+// ═══ РАБОТА СО СМЕНАМИ ═══
+async function openShift() {
+  if (!sheetUrl || !sheetConnected) {
+    showToast('❌ Google Sheets не подключён');
+    return;
+  }
+  try {
+    showToast('⏳ Открываю смену...');
+    const resp = await fetch(sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'openShift' })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      currentShiftId = data.shiftId;
+      showToast('✅ Смена открыта: ' + data.date + ' ' + data.time);
+    } else {
+      showToast('❌ ' + (data.error || 'Ошибка'));
+    }
+  } catch (e) {
+    showToast('❌ Ошибка: ' + e.message);
+  }
+}
+
+async function closeShift() {
+  if (!sheetUrl || !sheetConnected) {
+    showToast('❌ Google Sheets не подключён');
+    return;
+  }
+  if (!currentShiftId) {
+    showToast('❌ Нет открытой смены');
+    return;
+  }
+  try {
+    showToast('⏳ Закрываю смену...');
+    const resp = await fetch(sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'closeShift', shiftId: currentShiftId })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      const hours = Math.floor((data.workMinutes || 0) / 60);
+      const mins = (data.workMinutes || 0) % 60;
+      showToast('✅ Смена закрыта!\n💰 ' + data.revenue.toLocaleString('ru-RU') + ' ₽\n⏱️ ' + hours + 'ч ' + mins + 'мин\n📦 ' + data.count + ' шт');
+      currentShiftId = null;
+    } else {
+      showToast('❌ ' + (data.error || 'Ошибка'));
+    }
+  } catch (e) {
+    showToast('❌ Ошибка: ' + e.message);
+  }
+}
+
+// ═══ GOOGLE SHEETS ИНТЕГРАЦИЯ ═══
+function setupSettings() {
+  document.getElementById('btnSyncProducts').addEventListener('click', syncProductsToSheet);
+  updateAboutSheetStatus();
+}
+
+function updateAboutSheetStatus() {
+  const el = document.getElementById('aboutSheetStatus');
+  if (el) {
+    el.textContent = sheetConnected ? '🟢 Google Sheets подключён' : '🔴 Google Sheets не подключён';
+    el.style.color = sheetConnected ? 'var(--success)' : 'var(--error)';
+  }
+}
+
+async function loadProductsFromSheet() {
+  if (!sheetUrl || !sheetConnected) return;
+  try {
+    const resp = await fetch(sheetUrl + '?action=products');
+    const data = await resp.json();
+    if (data.success && data.data && data.data.length > 0) {
+      const sheetProducts = data.data.filter(row => row[0] && row[0].trim()).map(row => ({
+        sku: row[0],
+        name: row[1],
+        price: row[2],
+        stock: row[3]
+      }));
+      if (sheetProducts.length > 0) {
+        products = sheetProducts;
+        saveData();
+        renderProducts();
+      }
+    }
+  } catch (e) {
+    console.error('Sheets load error:', e);
+  }
+}
+
+async function syncProductsToSheet() {
+  if (!sheetUrl || !sheetConnected) {
+    showToast('❌ Google Sheets не подключён');
+    return;
+  }
+  try {
+    showToast('⏳ Синхронизирую товары...');
+    const resp = await fetch(sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'syncProducts', products })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showToast('✅ ' + data.message);
+    } else {
+      showToast('❌ ' + data.error);
+    }
+  } catch (e) {
+    showToast('❌ Ошибка: ' + e.message);
+  }
+}
+
+async function sendSaleToSheet(sale) {
+  try {
+    if (sale.synced) return;
+    const resp = await fetch(sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'sale',
+        sku: sale.sku,
+        name: sale.name,
+        price: sale.price,
+        qty: sale.qty,
+        shiftId: currentShiftId || ''
+      })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      sale.synced = true;
+      saveData();
+    }
+  } catch (e) {
+    console.error('Sheet sync error:', e);
+  }
+}
+
+async function sendShiftToSheet() {
+  const unsyncedSales = sales.filter(s => !s.synced);
+  if (unsyncedSales.length === 0) {
+    showToast('Нет новых продаж для отправки');
+    return;
+  }
+  if (!sheetUrl || !sheetConnected) {
+    showToast('❌ Google Sheets не подключён');
+    return;
+  }
+  try {
+    showToast('⏳ Отправляю ' + unsyncedSales.length + ' продаж...');
+    const resp = await fetch(sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'shift',
+        sales: unsyncedSales,
+        shiftId: currentShiftId || ''
+      })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showToast('✅ ' + data.message);
+      unsyncedSales.forEach(s => { s.synced = true; });
+      saveData();
+      renderSales();
+      updateStats();
+    } else {
+      showToast('❌ Ошибка: ' + (data.error || 'неизвестная'));
+    }
+  } catch (e) {
+    showToast('❌ Ошибка отправки: ' + e.message);
+  }
+}
+
+// ═══ СТАРТ ═══
+init();
+</script>
+</body>
+</html>
