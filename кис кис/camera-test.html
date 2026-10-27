@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Тест камеры — КИС керамика</title>
+<style>
+body { font-family: sans-serif; padding: 20px; background: #FAF5EF; color: #2C1810; }
+.card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+h1 { color: #1B4332; font-size: 20px; }
+h2 { color: #1B4332; font-size: 16px; margin-top: 0; }
+.btn { display: block; width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 8px; }
+.btn-primary { background: #1B4332; color: white; }
+.btn-danger { background: #C0392B; color: white; }
+.btn-secondary { background: #E8DFD0; color: #2C1810; }
+#video { width: 100%; max-width: 400px; border-radius: 8px; background: #000; display: block; margin: 0 auto; }
+#log { background: #f5f5f5; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; }
+.success { color: #2D6A4F; }
+.error { color: #C0392B; }
+.warning { color: #D4943A; }
+</style>
+</head>
+<body>
+
+<h1>📷 Тест камеры — КИС керамика</h1>
+
+<div class="card">
+  <h2>1. Информация об устройстве</h2>
+  <div id="deviceInfo"></div>
+</div>
+
+<div class="card">
+  <h2>2. Запуск камеры</h2>
+  <button class="btn btn-primary" id="btnStart">📷 Включить камеру</button>
+  <button class="btn btn-danger" id="btnStop">⏹ Выключить камеру</button>
+  <video id="video" autoplay playsinline muted style="display: none;"></video>
+</div>
+
+<div class="card">
+  <h2>3. Статус камеры</h2>
+  <div id="cameraStatus">Камера выключена</div>
+</div>
+
+<div class="card">
+  <h2>4. Лог событий</h2>
+  <div id="log"></div>
+  <button class="btn btn-secondary" id="btnClearLog">Очистить лог</button>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const log = document.getElementById('log');
+const status = document.getElementById('cameraStatus');
+let stream = null;
+let scanInterval = null;
+
+function addLog(msg, type = 'info') {
+  const time = new Date().toLocaleTimeString('ru-RU');
+  const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+  log.innerHTML += `<div class="${className}">[${time}] ${msg}</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+function updateStatus(msg) {
+  status.textContent = msg;
+}
+
+// Информация об устройстве
+function showDeviceInfo() {
+  const info = {
+    'User Agent': navigator.userAgent,
+    'Платформа': navigator.platform,
+    'Язык': navigator.language,
+    'Онлайн': navigator.onLine ? 'Да' : 'Нет',
+    'Cookie': navigator.cookieEnabled ? 'Да' : 'Нет',
+    'BarcodeDetector': 'BarcodeDetector' in window ? 'Поддерживается' : 'НЕ поддерживается',
+    'ZXing': typeof ZXing !== 'undefined' ? 'Загружен' : 'НЕ загружен',
+    'MediaDevices': navigator.mediaDevices ? 'Поддерживается' : 'НЕ поддерживается',
+    'getUserMedia': navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'Поддерживается' : 'НЕ поддерживается'
+  };
+  document.getElementById('deviceInfo').innerHTML = Object.entries(info)
+    .map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
+  addLog('Информация об устройстве получена');
+}
+
+// Запуск камеры
+async function startCamera() {
+  try {
+    addLog('Запрашиваем доступ к камере...');
+    addLog('Протокол: ' + location.protocol);
+    addLog('Хост: ' + location.host);
+    updateStatus('Запрос доступа...');
+    
+    // Проверяем поддержку
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      addLog('getUserMedia не поддерживается!', 'error');
+      updateStatus('❌ getUserMedia не поддерживается');
+      return;
+    }
+    
+    // Пробуем получить список устройств
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      addLog('Устройства: ' + devices.filter(d => d.kind === 'videoinput').length + ' камер');
+      devices.filter(d => d.kind === 'videoinput').forEach(d => {
+        addLog('  Камера: ' + d.label);
+      });
+    } catch (e) {
+      addLog('Ошибка enumerateDevices: ' + e.message, 'warning');
+    }
+    
+    // Запрашиваем доступ
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: false
+    });
+    
+    addLog('Доступ получен!', 'success');
+    addLog('Настройки потока: ' + JSON.stringify(stream.getVideoTracks()[0].getSettings()));
+    
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    
+    addLog('Запускаем видео...');
+    await video.play();
+    
+    video.style.display = 'block';
+    updateStatus('✅ Камера работает');
+    addLog('Камера успешно запущена!', 'success');
+    
+    // Проверяем состояние каждую секунду
+    scanInterval = setInterval(() => {
+      if (video.readyState === 4) {
+        addLog(`Видео: ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}`);
+      } else {
+        addLog(`readyState=${video.readyState} (ожидаем 4)`, 'warning');
+      }
+    }, 1000);
+    
+  } catch (e) {
+    addLog('Ошибка: ' + e.name + ' - ' + e.message, 'error');
+    
+    // Понятные сообщения
+    if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+      addLog('Пользователь отказал в доступе или доступ заблокирован', 'error');
+      updateStatus('❌ Доступ к камере запрещён');
+      addLog('Решение: Нажмите на замок в адресной строке → Камера → Разрешить', 'warning');
+    } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+      addLog('Камера не найдена на устройстве', 'error');
+      updateStatus('❌ Камера не найдена');
+    } else if (e.name === 'NotReadableError' || e.name === 'TrackStartError') {
+      addLog('Камера занята другим приложением', 'error');
+      updateStatus('❌ Камера занята другим приложением');
+    } else if (e.name === 'SecurityError') {
+      addLog('Проблема безопасности. Нужен HTTPS!', 'error');
+      updateStatus('❌ Нужен HTTPS для доступа к камере');
+    } else {
+      updateStatus('❌ Ошибка: ' + e.message);
+    }
+  }
+}
+
+// Выключение камеры
+function stopCamera() {
+  if (scanInterval) {
+    clearInterval(scanInterval);
+    scanInterval = null;
+  }
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+  video.style.display = 'none';
+  updateStatus('Камера выключена');
+  addLog('Камера выключена');
+}
+
+// События
+document.getElementById('btnStart').addEventListener('click', startCamera);
+document.getElementById('btnStop').addEventListener('click', stopCamera);
+document.getElementById('btnClearLog').addEventListener('click', () => { log.innerHTML = ''; });
+
+// Показываем информацию при загрузке
+showDeviceInfo();
+addLog('Страница загружена');
+</script>
+
+</body>
+</html>
