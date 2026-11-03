@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>КИС керамика — учёт остатков</title>
+<style>
+:root{
+  --primary:#1B4332;--primary-dark:#0D2818;--accent:#D4703A;
+  --bg:#FAF5EF;--card:#FFFFFF;--text:#2C1810;--muted:#8B7355;
+  --success:#2D6A4F;--warning:#D4943A;--error:#C0392B;--border:#E8DFD0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:80px;}
+.header{background:var(--primary);color:white;padding:14px 16px;position:sticky;top:0;z-index:100;}
+.header h1{font-size:18px;font-weight:600;}.header .subtitle{font-size:12px;opacity:0.8;margin-top:2px;}
+.container{max-width:600px;margin:0 auto;padding:12px;}
+.hidden{display:none !important;}
+.tabs{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;z-index:100;}
+.tab{flex:1;padding:10px 4px;text-align:center;font-size:11px;color:var(--muted);cursor:pointer;border:none;background:none;}
+.tab.active{color:var(--primary);font-weight:600;}.tab-icon{font-size:20px;display:block;margin-bottom:2px;}
+.card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06);}
+.card-title{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--primary);}
+.scan-area{background:#1a1a1a;border-radius:12px;height:220px;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;margin-bottom:12px;overflow:hidden;position:relative;}
+.scan-area video{width:100%;height:100%;object-fit:cover;}
+.scan-placeholder{text-align:center;padding:20px;color:#aaa;}
+.scan-result{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px;border:2px solid var(--success);display:none;}
+.scan-result.show{display:block;}
+.scan-result .sku{font-size:12px;color:var(--muted);}.scan-result .name{font-size:18px;font-weight:600;margin:4px 0;}
+.scan-result .info{display:flex;justify-content:space-between;margin-top:8px;align-items:center;}
+.scan-result .price{font-size:20px;font-weight:700;color:var(--accent);}.scan-result .stock{font-size:13px;color:var(--muted);}
+.scan-result .stock.low{color:var(--error);font-weight:600;}
+.scan-buttons{display:flex;gap:8px;margin-top:10px;}
+.btn{display:inline-block;width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;}
+.btn:active{opacity:0.8;}
+.btn-primary{background:var(--primary);color:white;}
+.btn-secondary{background:var(--border);color:var(--text);}
+.btn-danger{background:var(--error);color:white;}
+.btn-success{background:var(--success);color:white;}
+.btn-selected{outline:3px solid var(--accent);outline-offset:-3px;}
+.btn+.btn{margin-top:8px;}
+.sales-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+.sales-actions .btn{padding:10px 6px;font-size:13px;}
+.shift-banner{border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;font-weight:600;}
+.shift-banner.open{background:#E8F5E9;color:var(--success);}
+.shift-banner.closed{background:#FFEBEE;color:var(--error);}
+.stats-row{display:flex;gap:8px;margin-bottom:12px;}
+.stat-box{flex:1;background:var(--card);border-radius:10px;padding:12px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.06);}
+.stat-box .value{font-size:20px;font-weight:700;color:var(--primary);}.stat-box .label{font-size:11px;color:var(--muted);margin-top:2px;}
+.product-item{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);}
+.product-item:last-child{border-bottom:none;}
+.product-item .name{font-size:14px;font-weight:500;}
+.product-item .sku-line{font-size:11px;color:var(--muted);}
+.stock-badge{padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;}
+.stock-badge.ok{background:#E8F5E9;color:var(--success);}
+.stock-badge.low{background:#FFF3E0;color:var(--warning);}
+.stock-badge.out{background:#FFEBEE;color:var(--error);}
+.sale-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.sale-item:last-child{border-bottom:none;}
+.sale-item .time{color:var(--muted);font-size:11px;}
+.sale-item .amount{font-weight:600;color:var(--accent);white-space:nowrap;}
+.sale-item .notsynced{font-size:10px;color:var(--warning);}
+.search-box{margin-bottom:12px;}
+.search-box input,select{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:white;}
+.row-flex{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:300;display:none;align-items:center;justify-content:center;padding:20px;}
+.modal-overlay.show{display:flex;}
+.modal{background:var(--card);border-radius:16px;padding:20px;width:100%;max-width:400px;max-height:90vh;overflow-y:auto;}
+.modal h2{font-size:18px;margin-bottom:16px;color:var(--primary);}
+.modal .btn{margin-top:8px;}
+.delete-list-item{display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;}
+.delete-list-item input{width:18px;height:18px;margin-right:10px;}
+#qrPreview{text-align:center;margin:16px 0;min-height:200px;display:flex;align-items:center;justify-content:center;background:#FAF5EF;border-radius:8px;}
+.shift-result-line{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px;}
+.shift-result-line .val{font-weight:700;}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(100px);background:#2C1810;color:white;padding:12px 24px;border-radius:8px;font-size:14px;z-index:400;transition:transform 0.3s;max-width:90vw;white-space:pre-line;text-align:center;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🏺 КИС керамика</h1>
+  <div class="subtitle">Учёт остатков · <span id="today"></span></div>
+</div>
+
+<div class="container">
+
+  <!-- Вкладка: Скан -->
+  <div id="tab-scan" class="tab-content">
+    <div class="scan-area" id="scanArea">
+      <div class="scan-placeholder" id="scanPlaceholder">📷 Камера не запущена<br><small>Обычно включается сама</small></div>
+      <video id="video" class="hidden" autoplay playsinline muted></video>
+    </div>
+    <button class="btn btn-secondary" id="btnStartCamera">📷 Включить камеру</button>
+    <div class="card" style="margin-top:12px;">
+      <div class="card-title">Или введите артикул вручную</div>
+      <div class="search-box"><input type="text" id="manualSku" placeholder="Например: KM-001" autocomplete="off"></div>
+      <button class="btn btn-primary" id="btnManualFind">Найти товар</button>
+    </div>
+    <div class="scan-result" id="scanResult">
+      <div class="sku" id="resultSku"></div>
+      <div class="name" id="resultName"></div>
+      <div class="info">
+        <span class="price" id="resultPrice"></span>
+        <span class="stock" id="resultStock"></span>
+      </div>
+      <div class="scan-buttons">
+        <button class="btn btn-secondary" id="btnSold" style="margin:0;">✅ Продано</button>
+        <button class="btn btn-secondary" id="btnCancel" style="margin:0;">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Вкладка: Товары -->
+  <div id="tab-products" class="tab-content hidden">
+    <div class="row-flex">
+      <div class="search-box" style="flex:1;margin-bottom:0;"><input type="text" id="searchProducts" placeholder="🔍 Поиск по названию или артикулу..."></div>
+      <button id="btnDeleteProducts" style="background:var(--error);color:white;border:none;border-radius:8px;width:44px;height:44px;font-size:20px;cursor:pointer;" title="Удалить товары">🗑️</button>
+    </div>
+    <div class="card"><div class="card-title">Товары (<span id="productCount">0</span>)</div><div id="productList"></div></div>
+    <button class="btn btn-primary" id="btnAddProduct">➕ Добавить товар</button>
+    <button class="btn btn-secondary" id="btnPrintQr">🖨️ Распечатать QR-код</button>
+  </div>
+
+  <!-- Вкладка: Продажи -->
+  <div id="tab-sales" class="tab-content hidden">
+    <div class="shift-banner closed" id="shiftBanner">Смена не открыта</div>
+    <div class="sales-actions">
+      <button class="btn btn-success" id="btnOpenShift">▶️ Открыть смену</button>
+      <button class="btn btn-danger" id="btnCloseShift">⏹️ Закрыть смену</button>
+      <button class="btn btn-primary" id="btnSendShift">📤 Синхронизировать</button>
+      <button class="btn btn-secondary" id="btnUndoLast">↩️ Отменить последнюю</button>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box"><div class="value" id="statTodayCount">0</div><div class="label">Продаж сегодня</div></div>
+      <div class="stat-box"><div class="value" id="statTodaySum">0 ₽</div><div class="label">Выручка сегодня</div></div>
+      <div class="stat-box"><div class="value" id="statTotalCount">0</div><div class="label">Всего продаж</div></div>
+    </div>
+    <div class="card"><div class="card-title">Последние продажи</div><div id="salesList"></div></div>
+  </div>
+
+  <!-- Вкладка: Настройки -->
+  <div id="tab-settings" class="tab-content hidden">
+    <div class="card">
+      <div class="card-title">🔗 Google Sheets</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">Двусторонняя синхронизация: товары, продажи, смены.</p>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Статус: <span id="sheetStatusText">проверяется...</span></div>
+      <button class="btn btn-primary" id="btnSyncProducts">🔄 Синхронизировать товары</button>
+    </div>
+    <div class="card">
+      <div class="card-title">ℹ️ О программе</div>
+      <p style="font-size:13px;color:var(--muted);">КИС керамика v3.2 · Учёт остатков с QR-сканированием, скидками, сменами и синхронизацией с Google Sheets.</p>
+      <p style="font-size:13px;color:var(--muted);margin-top:8px;" id="aboutSheetStatus"></p>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="scan"><span class="tab-icon">📷</span>Скан</button>
+  <button class="tab" data-tab="products"><span class="tab-icon">🏺</span>Товары</button>
+  <button class="tab" data-tab="sales"><span class="tab-icon">💰</span>Продажи</button>
+  <button class="tab" data-tab="settings"><span class="tab-icon">⚙️</span>Ещё</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Модалка: Добавить товар -->
+<div class="modal-overlay" id="modalAddProduct">
+  <div class="modal"><h2>➕ Добавить товар</h2>
+    <div class="search-box"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Артикул *</label><input type="text" id="newSku" placeholder="Например: KM-016" style="text-transform:uppercase;"></div>
+    <div class="search-box"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Название *</label><input type="text" id="newName" placeholder="Название товара"></div>
+    <div class="search-box"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Цена (₽) *</label><input type="number" id="newPrice" placeholder="0" min="0"></div>
+    <div class="search-box"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Остаток (шт)</label><input type="number" id="newStock" placeholder="0" min="0"></div>
+    <button class="btn btn-primary" id="btnSaveProduct">💾 Сохранить товар</button>
+    <button class="btn btn-secondary" id="btnCancelAdd">Отмена</button>
+  </div>
+</div>
+
+<!-- Модалка: Удалить товары -->
+<div class="modal-overlay" id="modalDelete">
+  <div class="modal"><h2>🗑️ Удалить товары</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Выберите товары для удаления (уберутся и из таблицы):</p>
+    <div id="deleteList" style="max-height:300px;overflow-y:auto;margin-bottom:12px;"></div>
+    <button class="btn btn-danger" id="btnConfirmDelete">🗑️ Удалить выбранные</button>
+    <button class="btn btn-secondary" id="btnCancelDelete">Отмена</button>
+  </div>
+</div>
+
+<!-- Модалка: Печать QR -->
+<div class="modal-overlay" id="modalPrintQr">
+  <div class="modal"><h2>🖨️ Печать QR-кода</h2>
+    <div class="search-box"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Выберите товар</label><select id="qrProductSelect"></select></div>
+    <div id="qrPreview"></div>
+    <div id="qrProductInfo" style="text-align:center;margin-bottom:12px;font-size:14px;color:var(--muted);"></div>
+    <button class="btn btn-primary" id="btnDoPrint">🖨️ Печать</button>
+    <button class="btn btn-secondary" id="btnCancelPrint">Отмена</button>
+  </div>
+</div>
+
+<!-- Модалка: Оплата -->
+<div class="modal-overlay" id="modalPayment">
+  <div class="modal"><h2>💳 Оплата</h2>
+    <div class="search-box">
+      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Товар</label>
+      <div style="font-weight:600;" id="payName"></div>
+      <div style="font-size:12px;color:var(--muted);" id="paySku"></div>
+    </div>
+    <div class="search-box">
+      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Цена</label>
+      <div style="font-weight:700;color:var(--accent);font-size:18px;" id="payPrice"></div>
+    </div>
+    <div class="search-box">
+      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Скидка (₽)</label>
+      <input type="number" id="payDiscount" placeholder="0" min="0">
+      <div id="payFinal" style="font-size:13px;color:var(--muted);margin-top:4px;"></div>
+    </div>
+    <div style="margin:10px 0;">
+      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px;">Способ оплаты * (обязательно)</label>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" id="payCash" style="flex:1;margin:0;">💵 Наличные</button>
+        <button class="btn btn-secondary" id="payCard" style="flex:1;margin:0;">💳 Безнал</button>
+      </div>
+    </div>
+    <div id="payError" style="color:var(--error);font-size:12px;min-height:16px;"></div>
+    <button class="btn btn-primary" id="payConfirm">✅ Подтвердить продажу</button>
+    <button class="btn btn-secondary" id="payCancel">Отмена</button>
+  </div>
+</div>
+
+<!-- Модалка: Итоги смены -->
+<div class="modal-overlay" id="modalShiftResult">
+  <div class="modal">
+    <h2>📊 Итоги смены</h2>
+    <div id="shiftResultBody"></div>
+    <button class="btn btn-primary" id="btnShiftResultOk">ОК</button>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══ КОНФИГ ═══
+var CONFIG = {
+  sheetUrl: 'https://script.google.com/macros/s/AKfycbyx9OXBRT1XOGphF8U7_fc0wtEDncgp6RSyNnP1Zlp1H0FbUNORa9qAAOBoIIM_xDAH/exec'
+};
+
+var PRODUCTS_DEFAULT = [
+  {sku:'KM-001', name:'Кружка "Мята" 350мл', price:1200, stock:25},
+  {sku:'KM-002', name:'Кружка "Лаванда" 350мл', price:1200, stock:25},
+  {sku:'KM-003', name:'Кружка "Графит" 350мл', price:1200, stock:20},
+  {sku:'KM-004', name:'Тарелка "Облако" 24см', price:1800, stock:15},
+  {sku:'KM-005', name:'Тарелка "Солнце" 24см', price:1800, stock:15},
+  {sku:'KM-006', name:'Тарелка "Песок" 24см', price:1800, stock:15},
+  {sku:'KM-007', name:'Ваза "Дуб" 22см', price:3500, stock:8},
+  {sku:'KM-008', name:'Ваза "Берёза" 18см', price:2800, stock:10},
+  {sku:'KM-009', name:'Кашпо "Папоротник" 14см', price:900, stock:30},
+  {sku:'KM-010', name:'Кашпо "Суккулент" 10см', price:700, stock:35},
+  {sku:'KM-011', name:'Чайник "Туман" 1л', price:4500, stock:5},
+  {sku:'KM-012', name:'Сахарник "Ягода"', price:1500, stock:12},
+  {sku:'KM-013', name:'Салатник "Море" 20см', price:2200, stock:10},
+  {sku:'KM-014', name:'Супница "Лес" 1.5л', price:3800, stock:6},
+  {sku:'KM-015', name:'Блюдо "Аист" 30см', price:2500, stock:8}
+];
+
+// ═══ СОСТОЯНИЕ ═══
+var products = [];
+var sales = [];
+var currentScan = null;
+var stream = null;
+var scanning = false;
+var cameraMonitorInterval = null;
+var currentShiftId = null;
+var pendingShiftCheck = false;
+
+// ═══ DOM-ССЫЛКИ ═══
+function $(id){ return document.getElementById(id); }
+
+// ═══ УТИЛИТЫ ═══
+function fmtMoney(n){ return (Number(n)||0).toLocaleString('ru-RU') + ' ₽'; }
+
+function showToast(msg){
+  var t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+
+function beep(){
+  try{
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    var ctx = new Ctx();
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880;
+    g.gain.value = 0.08;
+    o.start();
+    o.stop(ctx.currentTime + 0.12);
+  }catch(e){}
+}
+
+function findProduct(sku){
+  if(!sku) return null;
+  var s = String(sku).trim().toLowerCase();
+  for(var i=0;i<products.length;i++){
+    if(products[i].sku.toLowerCase() === s) return products[i];
+  }
+  return null;
+}
+
+// ═══ ДАННЫЕ ═══
+function loadData(){
+  try{
+    var p = localStorage.getItem('kis_products');
+    var s = localStorage.getItem('kis_sales');
+    var sh = localStorage.getItem('kis_current_shift');
+    if(sh) currentShiftId = sh;
+    products = p ? JSON.parse(p) : JSON.parse(JSON.stringify(PRODUCTS_DEFAULT));
+    sales = s ? JSON.parse(s) : [];
+  }catch(e){
+    products = JSON.parse(JSON.stringify(PRODUCTS_DEFAULT));
+    sales = [];
+  }
+}
+
+function saveData(){
+  localStorage.setItem('kis_products', JSON.stringify(products));
+  localStorage.setItem('kis_sales', JSON.stringify(sales));
+  if(currentShiftId) localStorage.setItem('kis_current_shift', currentShiftId);
+  else localStorage.removeItem('kis_current_shift');
+}
+
+// ═══ СВЯЗЬ С GOOGLE SHEETS ═══
+function apiPost(body){
+  return fetch(CONFIG.sheetUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json(); });
+}
+
+function apiGet(params){
+  return fetch(CONFIG.sheetUrl + '?action=' + encodeURIComponent(params)).then(function(r){ return r.json(); });
+}
+
+// ═══ ИНИТ ═══
+function init(){
+  loadData();
+  $('today').textContent = new Date().toLocaleDateString('ru-RU');
+  setupTabs();
+  setupScan();
+  setupProducts();
+  setupSales();
+  setupPayment();
+  setupSettings();
+  updateShiftBanner();
+  renderProducts();
+  renderSales();
+  updateStats();
+  checkSheetStatus();
+  checkOpenShiftOnServer();
+  // Камера стартует автоматически на вкладке Скан (по клику пользователя — иначе браузер заблокирует)
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+// ═══ ВКЛАДКИ ═══
+function setupTabs(){
+  var tabs = document.querySelectorAll('.tab');
+  for(var i=0;i<tabs.length;i++){
+    (function(tab){
+      tab.addEventListener('click', function(){
+        var all = document.querySelectorAll('.tab');
+        for(var j=0;j<all.length;j++) all[j].classList.remove('active');
+        tab.classList.add('active');
+        var contents = document.querySelectorAll('.tab-content');
+        for(var k=0;k<contents.length;k++) contents[k].classList.add('hidden');
+        var target = document.getElementById('tab-' + tab.getAttribute('data-tab'));
+        if(target) target.classList.remove('hidden');
+        renderProducts();
+        updateStats();
+      });
+    })(tabs[i]);
+  }
+}
+
+// ═══ КАМЕРА / СКАН ═══
+function setupScan(){
+  $('btnStartCamera').addEventListener('click', toggleCamera);
+  $('btnManualFind').addEventListener('click', manualFind);
+  $('manualSku').addEventListener('keydown', function(e){ if(e.key === 'Enter') manualFind(); });
+  $('btnSold').addEventListener('click', confirmSale);
+  $('btnCancel').addEventListener('click', cancelScan);
+  // Автостарт камеры при первом клике в любом месте области сканирования
+  $('scanPlaceholder').addEventListener('click', function(){ if(!stream) toggleCamera(); });
+}
+
+function toggleCamera(){
+  if(stream){ stopCamera(); return; }
+  startCamera();
+}
+
+function startCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    showToast('❌ Камера недоступна в этом браузере. Вводите артикул вручную.');
+    return Promise.resolve();
+  }
+  return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+    .then(function(s){
+      stream = s;
+      var video = $('video');
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('muted', 'true');
+      video.srcObject = stream;
+      video.classList.remove('hidden');
+      $('scanPlaceholder').classList.add('hidden');
+      $('btnStartCamera').textContent = '⏹ Выключить камеру';
+      var playPromise = video.play();
+      if(playPromise && playPromise.catch) playPromise.catch(function(){});
+      startScanning();
+      monitorCamera();
+    })
+    .catch(function(err){
+      console.error('Camera error:', err);
+      if(err && err.name === 'NotAllowedError') showToast('❌ Доступ к камере запрещён. Разрешите его в настройках браузера.');
+      else if(err && err.name === 'NotFoundError') showToast('❌ Камера не найдена.');
+      else showToast('❌ Ошибка камеры: ' + (err && err.message ? err.message : err));
+      stopCamera();
+    });
+}
+
+function startScanning(){
+  if('BarcodeDetector' in window){
+    var detector = null;
+    try{
+      detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    }catch(e){
+      detector = new window.BarcodeDetector();
+    }
+    scanning = true;
+    scanLoopDetector(detector);
+  } else if(typeof window.ZXing !== 'undefined'){
+    var reader = new window.ZXing.BrowserQRCodeReader();
+    scanning = true;
+    scanLoopZXing(reader);
+  } else {
+    // Пробуем подгрузить ZXing динамически
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+    script.onload = function(){
+      if(typeof window.ZXing !== 'undefined'){
+        var reader2 = new window.ZXing.BrowserQRCodeReader();
+        scanning = true;
+        scanLoopZXing(reader2);
+      } else {
+        showToast('⚠️ Автосканирование не поддерживается. Вводите артикул вручную.');
+      }
+    };
+    script.onerror = function(){
+      showToast('⚠️ Автосканирование недоступно. Вводите артикул вручную.');
+    };
+    document.head.appendChild(script);
+  }
+}
+
+function scanLoopDetector(detector){
+  if(!scanning) return;
+  var video = $('video');
+  if(video && video.readyState >= 2 && video.videoWidth > 0){
+    detector.detect(video).then(function(codes){
+      if(codes && codes.length > 0 && codes[0].rawValue) handleScan(codes[0].rawValue);
+    }).catch(function(){});
+  }
+  setTimeout(function(){ scanLoopDetector(detector); }, 250);
+}
+
+function scanLoopZXing(reader){
+  if(!scanning) return;
+  var video = $('video');
+  if(video && video.readyState >= 2 && video.videoWidth > 0){
+    reader.decodeFromVideoElement(video).then(function(result){
+      if(result && result.getText()) handleScan(result.getText());
+    }).catch(function(){});
+  }
+  setTimeout(function(){ scanLoopZXing(reader); }, 300);
+}
+
+function monitorCamera(){
+  if(cameraMonitorInterval) clearInterval(cameraMonitorInterval);
+  cameraMonitorInterval = setInterval(function(){
+    if(!stream) return;
+    var track = stream.getVideoTracks()[0];
+    if(!track) return;
+    var video = $('video');
+    var frozen = !video || video.videoWidth === 0;
+    if(track.readyState === 'ended'){
+      showToast('⚠️ Камера отключилась. Перезапускаем...');
+      stopCamera();
+      setTimeout(startCamera, 800);
+    } else if(frozen && Math.random() < 0.02){
+      // редкая самопроверка на «зависшую» камеру
+      stopCamera();
+      setTimeout(startCamera, 600);
+    }
+  }, 2000);
+}
+
+function stopCamera(){
+  scanning = false;
+  if(cameraMonitorInterval){ clearInterval(cameraMonitorInterval); cameraMonitorInterval = null; }
+  if(stream){
+    var tracks = stream.getTracks ? stream.getTracks() : [];
+    for(var i=0;i<tracks.length;i++){ try{ tracks[i].stop(); }catch(e){} }
+    stream = null;
+  }
+  var video = $('video');
+  if(video){ video.srcObject = null; video.classList.add('hidden'); }
+  $('scanPlaceholder').classList.remove('hidden');
+  $('btnStartCamera').textContent = '📷 Включить камеру';
+}
+
+function handleScan(code){
+  if(!code) return;
+  var p = findProduct(code);
+  if(p){
+    beep();
+    showScanResult(p);
+  } else {
+    showToast('❌ Товар не найден: ' + code);
+  }
+}
+
+function manualFind(){
+  var input = $('manualSku');
+  var code = input.value.trim();
+  if(!code) return;
+  handleScan(code);
+  input.value = '';
+}
+
+function showScanResult(p){
+  currentScan = p;
+  $('resultSku').textContent = p.sku;
+  $('resultName').textContent = p.name;
+  $('resultPrice').textContent = fmtMoney(p.price);
+  var st = $('resultStock');
+  st.textContent = p.stock > 0 ? ('Остаток: ' + p.stock + ' шт') : 'Нет в наличии';
+  st.className = 'stock' + (p.stock <= 3 ? ' low' : '');
+  $('scanResult').classList.add('show');
+}
+
+function cancelScan(){
+  currentScan = null;
+  $('scanResult').classList.remove('show');
+}
+
+// ═══ ПРОДАЖА: ПРОВЕРКА СМЕНЫ ═══
+function confirmSale(){
+  if(!currentShiftId){
+    showToast('❌ Сначала откройте смену! (Вкладка «Продажи»)');
+    return;
+  }
+  if(!currentScan) return;
+  if(currentScan.stock <= 0){
+    showToast('❌ Товара нет в наличии!');
+    return;
+  }
+  openPaymentModal(currentScan);
+}
+
+// ═══ ОПЛАТА ═══
+var paymentMethod = '';
+function openPaymentModal(p){
+  paymentMethod = '';
+  $('payName').textContent = p.name;
+  $('paySku').textContent = p.sku;
+  $('payPrice').textContent = fmtMoney(p.price);
+  $('payDiscount').value = '';
+  $('payFinal').textContent = '';
+  $('payError').textContent = '';
+  $('payCash').classList.remove('btn-selected');
+  $('payCard').classList.remove('btn-selected');
+  $('modalPayment').classList.add('show');
+}
+
+function closePaymentModal(){
+  $('modalPayment').classList.remove('show');
+  cancelScan();
+}
+
+function setupPayment(){
+  $('payCash').addEventListener('click', function(){
+    paymentMethod = 'cash';
+    $('payCash').classList.add('btn-selected');
+    $('payCard').classList.remove('btn-selected');
+    $('payError').textContent = '';
+  });
+  $('payCard').addEventListener('click', function(){
+    paymentMethod = 'noncash';
+    $('payCard').classList.add('btn-selected');
+    $('payCash').classList.remove('btn-selected');
+    $('payError').textContent = '';
+  });
+  $('payDiscount').addEventListener('input', function(){
+    var price = currentScan ? Number(currentScan.price) || 0 : 0;
+    var disc = parseInt($('payDiscount').value, 10) || 0;
+    if(disc > price) disc = price;
+    $('payFinal').textContent = disc > 0 ? ('К оплате: ' + fmtMoney(price - disc)) : '';
+  });
+  $('payConfirm').addEventListener('click', submitSale);
+  $('payCancel').addEventListener('click', function(){ $('modalPayment').classList.remove('show'); cancelScan(); });
+}
+
+function submitSale(){
+  if(!currentScan) return;
+  var p = currentScan;
+  var disc = parseInt($('payDiscount').value, 10) || 0;
+  if(disc < 0) disc = 0;
+  if(disc > p.price) disc = p.price;
+  if(!paymentMethod){
+    $('payError').textContent = '⚠️ Выберите способ оплаты (наличные или безнал)';
+    return;
+  }
+  var amount = p.price - disc;
+  var sale = {
+    sku: p.sku,
+    name: p.name,
+    price: p.price,
+    discount: disc,
+    amount: amount,
+    payment: paymentMethod,
+    qty: 1,
+    shiftId: currentShiftId,
+    timestamp: new Date().toISOString(),
+    synced: false
+  };
+  sales.unshift(sale);
+  p.stock = Math.max(0, p.stock - 1);
+  saveData();
+  closePaymentModal();
+  renderProducts();
+  renderSales();
+  updateStats();
+  showToast('✅ Продано: ' + p.name + ' — ' + fmtMoney(amount));
+  sendSaleToSheet(sale);
+}
+
+function sendSaleToSheet(sale){
+  apiPost({
+    action: 'sale',
+    sku: sale.sku,
+    name: sale.name,
+    price: sale.amount, // отправляем цену со скидкой — сумма в таблице будет «настоящая»
+    qty: sale.qty,
+    shiftId: sale.shiftId,
+    payment: sale.payment
+  }).then(function(data){
+    if(data && data.success){
+      sale.synced = true;
+      saveData();
+      renderSales();
+    } else {
+      showToast('⚠️ Продажа сохранена локально. Отправьте её кнопкой «Синхронизировать».');
+    }
+  }).catch(function(e){
+    console.error('sale sync error', e);
+    showToast('⚠️ Продажа сохранена локально. Отправьте её кнопкой «Синхронизировать».');
+  });
+}
+
+// ═══ ТОВАРЫ ═══
+function setupProducts(){
+  $('searchProducts').addEventListener('input', renderProducts);
+  $('btnAddProduct').addEventListener('click', function(){
+    $('newSku').value = '';
+    $('newName').value = '';
+    $('newPrice').value = '';
+    $('newStock').value = '';
+    $('modalAddProduct').classList.add('show');
+    $('newSku').focus();
+  });
+  $('btnCancelAdd').addEventListener('click', function(){ $('modalAddProduct').classList.remove('show'); });
+  $('btnSaveProduct').addEventListener('click', saveNewProduct);
+  $('btnPrintQr').addEventListener('click', openPrintModal);
+  $('btnCancelPrint').addEventListener('click', function(){ $('modalPrintQr').classList.remove('show'); });
+  $('btnDoPrint').addEventListener('click', printQrCode);
+  $('qrProductSelect').addEventListener('change', renderQrPreview);
+  $('btnDeleteProducts').addEventListener('click', openDeleteModal);
+  $('btnConfirmDelete').addEventListener('click', confirmDelete);
+  $('btnCancelDelete').addEventListener('click', function(){ $('modalDelete').classList.remove('show'); });
+}
+
+function renderProducts(){
+  var q = ($('searchProducts').value || '').toLowerCase();
+  var list = $('productList');
+  var count = 0;
+  var html = '';
+  for(var i=0;i<products.length;i++){
+    var p = products[i];
+    if(q && p.name.toLowerCase().indexOf(q) < 0 && p.sku.toLowerCase().indexOf(q) < 0) continue;
+    count++;
+    var cls, txt;
+    if(p.stock === 0){ cls = 'out'; txt = 'Нет'; }
+    else if(p.stock <= 3){ cls = 'low'; txt = p.stock + ' шт'; }
+    else { cls = 'ok'; txt = p.stock + ' шт'; }
+    html += '<div class="product-item">'
+      + '<div><div class="name">' + escapeHtml(p.name) + '</div>'
+      + '<div class="sku-line">' + p.sku + ' · ' + fmtMoney(p.price) + '</div></div>'
+      + '<span class="stock-badge ' + cls + '">' + txt + '</span></div>';
+  }
+  if(count === 0){
+    html = '<p style="color:var(--muted);text-align:center;padding:20px;">Товары не найдены</p>';
+  }
+  list.innerHTML = html;
+  $('productCount').textContent = String(products.length);
+}
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function saveNewProduct(){
+  var sku = $('newSku').value.trim().toUpperCase();
+  var name = $('newName').value.trim();
+  var price = parseInt($('newPrice').value, 10) || 0;
+  var stock = parseInt($('newStock').value, 10) || 0;
+  if(!sku || !name){
+    showToast('❌ Заполните артикул и название');
+    return;
+  }
+  if(findProduct(sku)){
+    showToast('❌ Артикул ' + sku + ' уже существует');
+    return;
+  }
+  var p = { sku: sku, name: name, price: price, stock: stock };
+  products.push(p);
+  saveData();
+  renderProducts();
+  $('modalAddProduct').classList.remove('show');
+  showToast('✅ Добавлен: ' + name);
+  apiPost({ action: 'updateStock', sku: sku, name: name, price: price, stock: stock })
+    .then(function(d){ if(!(d && d.success)) showToast('⚠️ Товар добавлен локально, в таблицу не попал'); })
+    .catch(function(){ showToast('⚠️ Товар добавлен локально, в таблицу не попал'); });
+}
+
+function openDeleteModal(){
+  if(products.length === 0){ showToast('Нет товаров для удаления'); return; }
+  var html = '';
+  for(var i=0;i<products.length;i++){
+    var p = products[i];
+    html += '<label class="delete-list-item"><input type="checkbox" class="delete-check" value="' + escapeHtml(p.sku) + '">'
+      + '<span><div style="font-weight:500;">' + escapeHtml(p.name) + '</div>'
+      + '<div style="font-size:12px;color:var(--muted);">' + p.sku + ' · ' + fmtMoney(p.price) + ' · ' + p.stock + ' шт</div></span></label>';
+  }
+  $('deleteList').innerHTML = html;
+  $('modalDelete').classList.add('show');
+}
+
+function confirmDelete(){
+  var checks = document.querySelectorAll('.delete-check:checked');
+  if(checks.length === 0){ showToast('Выберите хотя бы один товар'); return; }
+  if(!window.confirm('Удалить ' + checks.length + ' товара(ов)? Товар исчезнет и из Google-таблицы.')) return;
+  var skus = [];
+  for(var i=0;i<checks.length;i++) skus.push(checks[i].value);
+  var kept = [];
+  for(var j=0;j<products.length;j++){
+    if(skus.indexOf(products[j].sku) < 0) kept.push(products[j]);
+  }
+  products = kept;
+  saveData();
+  renderProducts();
+  $('modalDelete').classList.remove('show');
+  showToast('🗑️ Удалено: ' + skus.length);
+  apiPost({ action: 'deleteProducts', skus: skus })
+    .then(function(d){ if(!(d && d.success)) showToast('⚠️ Не удалось удалить из таблицы: ' + ((d && d.error) || 'ошибка')); })
+    .catch(function(){ showToast('⚠️ Удалено локально, из таблицы не удалено (нет интернета)'); });
+}
+
+// ═══ QR-ПЕЧАТЬ (без остатка!) ═══
+function qrUrl(sku){
+  return 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=' + encodeURIComponent(sku);
+}
+
+function openPrintModal(){
+  if(products.length === 0){ showToast('Нет товаров'); return; }
+  var sel = $('qrProductSelect');
+  var html = '';
+  for(var i=0;i<products.length;i++){
+    html += '<option value="' + escapeHtml(products[i].sku) + '">' + products[i].sku + ' — ' + escapeHtml(products[i].name) + '</option>';
+  }
+  sel.innerHTML = html;
+  $('modalPrintQr').classList.add('show');
+  renderQrPreview();
+}
+
+function renderQrPreview(){
+  var sku = $('qrProductSelect').value;
+  var info = $('qrProductInfo');
+  var preview = $('qrPreview');
+  preview.innerHTML = '';
+  var p = findProduct(sku);
+  if(!p){ info.textContent = ''; return; }
+  info.innerHTML = '<strong>' + escapeHtml(p.name) + '</strong><br>' + fmtMoney(p.price);
+  var img = document.createElement('img');
+  img.src = qrUrl(p.sku);
+  img.alt = 'QR ' + p.sku;
+  img.width = 180;
+  img.height = 180;
+  preview.appendChild(img);
+}
+
+function printQrCode(){
+  // печатаем ВСЕ товары на отдельных этикетках
+  var w = window.open('', '_blank');
+  if(!w){ showToast('❌ Разрешите всплывающие окна для печати'); return; }
+  var html = '<html><head><title>QR-этикетки КИС керамика</title><style>'
+    + 'body{font-family:sans-serif;margin:0;padding:16px;}'
+    + '.label{border:1px dashed #999;border-radius:8px;padding:12px;margin:0 auto 16px;width:300px;text-align:center;page-break-inside:avoid;}'
+    + 'h2{margin:8px 0 2px;font-size:18px;}'
+    + '.sku{font-size:15px;letter-spacing:1px;}'
+    + '.price{font-size:17px;font-weight:bold;margin-top:2px;}'
+    + '@media print{.noprint{display:none;}}'
+    + '</style></head><body>';
+  for(var i=0;i<products.length;i++){
+    var p = products[i];
+    html += '<div class="label">'
+      + '<h2>' + p.name + '</h2>'
+      + '<div class="sku">' + p.sku + '</div>'
+      + '<div class="price">' + fmtMoney(p.price) + '</div>'
+      + '<img src="' + qrUrl(p.sku) + '" width="180" height="180" alt="QR">'
+      + '</div>';
+  }
+  html += '</body></html>';
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 1200);
+  $('modalPrintQr').classList.remove('show');
+}
+
+// ═══ ПРОДАЖИ ═══
+function setupSales(){
+  $('btnUndoLast').addEventListener('click', undoLastSale);
+  $('btnSendShift').addEventListener('click', syncUnsynced);
+  $('btnOpenShift').addEventListener('click', openShift);
+  $('btnCloseShift').addEventListener('click', closeShift);
+}
+
+function renderSales(){
+  var list = $('salesList');
+  if(sales.length === 0){
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px;">Продаж пока нет</p>';
+    return;
+  }
+  var html = '';
+  var n = Math.min(sales.length, 50);
+  for(var i=0;i<n;i++){
+    var s = sales[i];
+    var d = new Date(s.timestamp);
+    var timeStr = d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    var pay = s.payment === 'noncash' ? '💳' : '💵';
+    var syncMark = s.synced ? '' : ' <span class="notsynced">⏸ не записана</span>';
+    html += '<div class="sale-item"><div><div>' + pay + ' ' + escapeHtml(s.name) + syncMark + '</div>'
+      + '<div class="time">' + timeStr + (s.discount ? ' · скидка ' + fmtMoney(s.discount) : '') + '</div></div>'
+      + '<span class="amount">+' + fmtMoney(s.amount) + '</span></div>';
+  }
+  list.innerHTML = html;
+}
+
+function updateStats(){
+  var today = new Date().toDateString();
+  var count = 0, sum = 0;
+  for(var i=0;i<sales.length;i++){
+    var s = sales[i];
+    if(new Date(s.timestamp).toDateString() === today){
+      count += s.qty || 1;
+      sum += Number(s.amount) || 0;
+    }
+  }
+  $('statTodayCount').textContent = String(count);
+  $('statTodaySum').textContent = fmtMoney(sum);
+  $('statTotalCount').textContent = String(sales.length);
+}
+
+function undoLastSale(){
+  if(sales.length === 0){ showToast('Нет продаж для отмены'); return; }
+  var last = sales.shift();
+  var p = findProduct(last.sku);
+  if(p) p.stock += 1;
+  saveData();
+  renderProducts();
+  renderSales();
+  updateStats();
+  showToast('↩️ Отменено: ' + last.name + (last.synced ? ' (строка в таблице останется — удалите её вручную)' : ''));
+}
+
+// ═══ СИНХРОНИЗАЦИЯ НЕОТПРАВЛЕННЫХ ПРОДАЖ ═══
+function syncUnsynced(){
+  var unsynced = [];
+  for(var i=0;i<sales.length;i++){ if(!sales[i].synced) unsynced.push(sales[i]); }
+  if(unsynced.length === 0){ showToast('✅ Все продажи уже записаны'); return; }
+  showToast('⏳ Отправляю ' + unsynced.length + ' продаж...');
+  payloadFor(unsynced, 0);
+}
+
+function payloadFor(list, idx){
+  if(idx >= list.length){
+    renderSales();
+    showToast('✅ Все продажи записаны в таблицу');
+    return;
+  }
+  var s = list[idx];
+  apiPost({
+    action: 'sale',
+    sku: s.sku,
+    name: s.name,
+    price: s.amount,
+    qty: s.qty,
+    shiftId: s.shiftId,
+    payment: s.payment
+  }).then(function(d){
+    if(d && d.success){ s.synced = true; saveData(); }
+    payloadFor(list, idx + 1);
+  }).catch(function(){
+    payloadFor(list, idx + 1);
+  });
+}
+
+// ═══ СМЕНЫ ═══
+function updateShiftBanner(){
+  var banner = $('shiftBanner');
+  if(currentShiftId){
+    banner.className = 'shift-banner open';
+    banner.textContent = '🟢 Смена открыта: ' + currentShiftId;
+  } else {
+    banner.className = 'shift-banner closed';
+    banner.textContent = '🔴 Смена не открыта — продажи недоступны';
+  }
+}
+
+function openShift(){
+  showToast('⏳ Открываю смену...');
+  apiPost({ action: 'openShift' }).then(function(d){
+    if(d && d.success){
+      currentShiftId = d.shiftId;
+      saveData();
+      updateShiftBanner();
+      showToast('✅ Смена открыта');
+    } else if(d && d.error && d.error.indexOf('Уже есть') >= 0){
+      // смена уже открыта на сервере — привязываемся к ней
+      return checkOpenShiftOnServer().then(function(){
+        if(currentShiftId) showToast('✅ Найдена открытая смена, продолжаем её');
+        else showToast('❌ ' + d.error);
+      });
+    } else {
+      showToast('❌ ' + ((d && d.error) || 'Не удалось открыть смену'));
+    }
+  }).catch(function(e){
+    console.error(e);
+    showToast('❌ Ошибка сети. Проверьте интернет.');
+  });
+}
+
+function closeShift(){
+  if(!currentShiftId){
+    showToast('❌ Нет открытой смены');
+    return;
+  }
+  var unsyncedCount = 0;
+  for(var i=0;i<sales.length;i++){ if(!sales[i].synced) unsyncedCount++; }
+  if(unsyncedCount > 0){
+    showToast('⏳ Сначала записываю ' + unsyncedCount + ' продаж...');
+    var unsynced = [];
+    for(var j=0;j<sales.length;j++){ if(!sales[j].synced) unsynced.push(sales[j]); }
+    payloadFor(unsynced, 0);
+  }
+  showToast('⏳ Закрываю смену...');
+  apiPost({ action: 'closeShift', shiftId: currentShiftId }).then(function(d){
+    if(d && d.success){
+      currentShiftId = null;
+      localStorage.removeItem('kis_current_shift');
+      updateShiftBanner();
+      showShiftResult(d);
+    } else if(d && d.error && d.error.indexOf('Нет открытой') >= 0){
+      currentShiftId = null;
+      localStorage.removeItem('kis_current_shift');
+      updateShiftBanner();
+      showToast('⚠️ Открытой смены не было на сервере');
+    } else {
+      showToast('❌ ' + ((d && d.error) || 'Ошибка закрытия'));
+    }
+  }).catch(function(e){
+    console.error(e);
+    showToast('❌ Ошибка сети. Проверьте интернет. Смена осталась открытой.');
+  });
+}
+
+function checkOpenShiftOnServer(){
+  return apiGet('shifts').then(function(d){
+    if(d && d.success && d.data && d.data.length){
+      for(var i=0;i<d.data.length;i++){
+        var row = d.data[i];
+        var closeDate = row[3];
+        if(closeDate === '' || closeDate === null || closeDate === undefined){
+          var id = String(row[0] || '');
+          if(id){ currentShiftId = id; saveData(); updateShiftBanner(); return; }
+        }
+      }
+    }
+  }).catch(function(){ /* оффлайн — не критично */ });
+}
+
+function showShiftResult(d){
+  var min = Number(d.workMinutes) || 0;
+  var hours = Math.floor(min / 60);
+  var mins = min % 60;
+  var html = ''
+    + line('💵 Наличные', fmtMoney(d.cashTotal))
+    + line('💳 Безнал', fmtMoney(d.nonCashTotal))
+    + line('💰 Общая выручка', fmtMoney(d.revenue))
+    + line('📦 Продано товаров', String(Number(d.count) || 0) + ' шт')
+    + line('⏱ Время работы', (hours ? hours + ' ч ' : '') + mins + ' мин')
+    + line('🏆 Топ продаж', escapeHtml(String(d.topSales || 'Нет продаж')));
+  $('shiftResultBody').innerHTML = html;
+  $('modalShiftResult').classList.add('show');
+}
+
+function line(label, val){
+  return '<div class="shift-result-line"><span>' + label + '</span><span class="val">' + val + '</span></div>';
+}
+
+// ═══ НАСТРОЙКИ / СТАТУС ═══
+function setupSettings(){
+  $('btnSyncProducts').addEventListener('click', syncProductsToSheet);
+}
+
+function checkSheetStatus(){
+  apiGet('products').then(function(d){
+    var ok = d && d.success;
+    $('sheetStatusText').textContent = ok ? '✅ подключено' : '⚠️ ошибка';
+    $('aboutSheetStatus').textContent = ok ? 'Google Sheets: подключено' : 'Google Sheets: ошибка — проверьте скрипт';
+  }).catch(function(){
+    $('sheetStatusText').textContent = '❌ нет соединения';
+    $('aboutSheetStatus').textContent = 'Google Sheets: нет соединения (нужен интернет)';
+  });
+}
+
+function syncProductsToSheet(){
+  showToast('⏳ Отправляю товары в таблицу...');
+  apiPost({ action: 'syncProducts', products: products }).then(function(d){
+    if(d && d.success){
+      showToast('✅ ' + ((d && d.message) || 'Товары синхронизированы'));
+      return refreshProductsFromSheet();
+    } else {
+      showToast('❌ ' + ((d && d.error) || 'Ошибка'));
+    }
+  }).catch(function(){
+    showToast('❌ Ошибка сети. Проверьте интернет.');
+  });
+}
+
+function refreshProductsFromSheet(){
+  return apiGet('products').then(function(d){
+    if(d && d.success && d.data && d.data.length){
+      var fresh = [];
+      for(var i=0;i<d.data.length;i++){
+        var row = d.data[i];
+        if(!row[0]) continue;
+        fresh.push({
+          sku: String(row[0]),
+          name: String(row[1] || ''),
+          price: Number(row[2]) || 0,
+          stock: Number(row[3]) || 0
+        });
+      }
+      if(fresh.length){
+        products = fresh;
+        saveData();
+        renderProducts();
+        showToast('🔄 Товары обновлены из таблицы: ' + fresh.length);
+      }
+      return fresh;
+    }
+  }).catch(function(){});
+}
+
+})();
+</script>
+</body>
+</html>
