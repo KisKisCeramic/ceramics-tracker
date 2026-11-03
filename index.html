@@ -271,7 +271,6 @@ var sales = [];
 var currentScan = null;
 var stream = null;
 var scanning = false;
-var cameraMonitorInterval = null;
 var currentShiftId = null;
 var pendingShiftCheck = false;
 
@@ -286,7 +285,7 @@ function showToast(msg){
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(function(){ t.classList.remove('show'); }, 3000);
+  t._timer = setTimeout(function(){ t.classList.remove('show'); }, 7000);
 }
 
 function beep(){
@@ -363,7 +362,9 @@ function init(){
   renderSales();
   updateStats();
   checkSheetStatus();
+  refreshProductsFromSheet(true);
   checkOpenShiftOnServer();
+  document.addEventListener('visibilitychange', onVisibility);
   // Камера стартует автоматически на вкладке Скан (по клику пользователя — иначе браузер заблокирует)
 }
 
@@ -410,28 +411,53 @@ function startCamera(){
     showToast('❌ Камера недоступна в этом браузере. Вводите артикул вручную.');
     return Promise.resolve();
   }
-  return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-    .then(function(s){
-      stream = s;
-      var video = $('video');
-      video.setAttribute('playsinline', 'true');
-      video.setAttribute('muted', 'true');
-      video.srcObject = stream;
-      video.classList.remove('hidden');
-      $('scanPlaceholder').classList.add('hidden');
-      $('btnStartCamera').textContent = '⏹ Выключить камеру';
-      var playPromise = video.play();
-      if(playPromise && playPromise.catch) playPromise.catch(function(){});
-      startScanning();
-      monitorCamera();
-    })
-    .catch(function(err){
-      console.error('Camera error:', err);
-      if(err && err.name === 'NotAllowedError') showToast('❌ Доступ к камере запрещён. Разрешите его в настройках браузера.');
-      else if(err && err.name === 'NotFoundError') showToast('❌ Камера не найдена.');
-      else showToast('❌ Ошибка камеры: ' + (err && err.message ? err.message : err));
-      stopCamera();
+  if(stream) return Promise.resolve();
+  var video = $('video');
+  // iOS (Safari): атрибуты выставляем ДО подключения потока — иначе чёрный экран
+  video.setAttribute('playsinline', 'true');
+  video.setAttribute('muted', 'true');
+  video.muted = true;
+  video.volume = 0;
+  return navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } },
+    audio: false
+  }).then(function(s){
+    stream = s;
+    video.srcObject = stream;
+    video.classList.remove('hidden');
+    $('scanPlaceholder').classList.add('hidden');
+    $('btnStartCamera').textContent = '⏹ Выключить камеру';
+    var track = s.getVideoTracks()[0];
+    if(track && track.addEventListener){
+      // Safari сам убивает трек при звонке/сворачивании — ловим и перезапускаем
+      track.addEventListener('ended', onTrackEnded);
+      track.addEventListener('mute', function(){
+        setTimeout(function(){
+          var tr = stream ? stream.getVideoTracks()[0] : null;
+          if(tr && tr.muted === true) onTrackEnded();
+        }, 1500);
+      });
+    }
+    lastFrameTime = -1;
+    frozenChecks = 0;
+    cameraRestartCount = 0;
+    var pp = video.play();
+    if(pp && pp.catch){ pp.catch(function(){}); }
+    // страховка: если play() не стартовал сразу — повторяем по canplay
+    video.addEventListener('canplay', function once(){
+      video.removeEventListener('canplay', once);
+      var p2 = video.play();
+      if(p2 && p2.catch) p2.catch(function(){});
     });
+    startScanning();
+    armWatchdog();
+  }).catch(function(err){
+    console.error('Camera error:', err);
+    if(err && err.name === 'NotAllowedError') showToast('❌ Доступ к камере запрещён. Разрешите его в настройках браузера.');
+    else if(err && err.name === 'NotFoundError') showToast('❌ Камера не найдена.');
+    else showToast('❌ Ошибка камеры: ' + (err && err.message ? err.message : err));
+    stopCamera();
+  });
 }
 
 function startScanning(){
@@ -490,29 +516,73 @@ function scanLoopZXing(reader){
   setTimeout(function(){ scanLoopZXing(reader); }, 300);
 }
 
-function monitorCamera(){
-  if(cameraMonitorInterval) clearInterval(cameraMonitorInterval);
-  cameraMonitorInterval = setInterval(function(){
-    if(!stream) return;
-    var track = stream.getVideoTracks()[0];
-    if(!track) return;
+// ── Watchdog камеры: ловит «чёрный экран»/заморозку и сам перезапускает ──
+var watchdogTimer = null;
+var cameraRestartCount = 0;
+var lastFrameTime = -1;
+var frozenChecks = 0;
+
+function clearWatchdog(){
+  if(watchdogTimer){ clearTimeout(watchdogTimer); watchdogTimer = null; }
+}
+
+function onTrackEnded(){
+  if(!stream) return;
+  stopCamera();
+  cameraRestartCount++;
+  if(cameraRestartCount > 5){
+    showToast('⚠️ Камера нестабильна на этом устройстве. Вводите артикул вручную.');
+    return;
+  }
+  showToast('⚠️ Камера отключилась, перезапускаю (' + cameraRestartCount + '/5)...');
+  setTimeout(startCamera, 900);
+}
+
+function onVisibility(){
+  if(document.visibilityState !== 'visible') return;
+  var tr = stream ? stream.getVideoTracks()[0] : null;
+  if(!tr || tr.readyState !== 'live') onTrackEnded();
+  else armWatchdog();
+}
+
+function armWatchdog(){
+  clearWatchdog();
+  watchdogTimer = setTimeout(function(){
     var video = $('video');
-    var frozen = !video || video.videoWidth === 0;
-    if(track.readyState === 'ended'){
-      showToast('⚠️ Камера отключилась. Перезапускаем...');
-      stopCamera();
-      setTimeout(startCamera, 800);
-    } else if(frozen && Math.random() < 0.02){
-      // редкая самопроверка на «зависшую» камеру
-      stopCamera();
-      setTimeout(startCamera, 600);
+    var track = stream ? stream.getVideoTracks()[0] : null;
+    if(!stream || !track || track.readyState !== 'live'){
+      onTrackEnded();
+      return;
     }
-  }, 2000);
+    if(video && video.readyState >= 2 && video.videoWidth > 0){
+      var t = video.currentTime;
+      if(t === lastFrameTime){
+        frozenChecks++;
+      } else {
+        frozenChecks = 0;
+        lastFrameTime = t;
+        cameraRestartCount = 0;
+      }
+      // картинка не обновляется 6+ секунд → значит «чёрный экран», перезапуск
+      if(frozenChecks >= 2){
+        onTrackEnded();
+        return;
+      }
+    } else {
+      cameraRestartCount++;
+      if(cameraRestartCount > 3){
+        clearWatchdog();
+        showToast('⚠️ Камера не запустилась. Вводите артикул вручную.');
+        return;
+      }
+    }
+    armWatchdog();
+  }, 3000);
 }
 
 function stopCamera(){
   scanning = false;
-  if(cameraMonitorInterval){ clearInterval(cameraMonitorInterval); cameraMonitorInterval = null; }
+  clearWatchdog();
   if(stream){
     var tracks = stream.getTracks ? stream.getTracks() : [];
     for(var i=0;i<tracks.length;i++){ try{ tracks[i].stop(); }catch(e){} }
@@ -815,27 +885,25 @@ function renderQrPreview(){
 }
 
 function printQrCode(){
-  // печатаем ВСЕ товары на отдельных этикетках
+  var sku = $('qrProductSelect').value;
+  var p = findProduct(sku);
+  if(!p){ showToast('Выберите товар'); return; }
   var w = window.open('', '_blank');
   if(!w){ showToast('❌ Разрешите всплывающие окна для печати'); return; }
-  var html = '<html><head><title>QR-этикетки КИС керамика</title><style>'
-    + 'body{font-family:sans-serif;margin:0;padding:16px;}'
-    + '.label{border:1px dashed #999;border-radius:8px;padding:12px;margin:0 auto 16px;width:300px;text-align:center;page-break-inside:avoid;}'
-    + 'h2{margin:8px 0 2px;font-size:18px;}'
-    + '.sku{font-size:15px;letter-spacing:1px;}'
-    + '.price{font-size:17px;font-weight:bold;margin-top:2px;}'
-    + '@media print{.noprint{display:none;}}'
-    + '</style></head><body>';
-  for(var i=0;i<products.length;i++){
-    var p = products[i];
-    html += '<div class="label">'
-      + '<h2>' + p.name + '</h2>'
-      + '<div class="sku">' + p.sku + '</div>'
-      + '<div class="price">' + fmtMoney(p.price) + '</div>'
-      + '<img src="' + qrUrl(p.sku) + '" width="180" height="180" alt="QR">'
-      + '</div>';
-  }
-  html += '</body></html>';
+  var html = '<html><head><title>QR ' + p.sku + '</title><style>'
+    + 'body{font-family:sans-serif;margin:0;padding:16px;display:flex;flex-direction:column;align-items:center;}'
+    + '.label{border:1px dashed #999;border-radius:8px;padding:16px;margin-top:16px;width:300px;text-align:center;}'
+    + 'h2{margin:8px 0 2px;font-size:20px;}'
+    + '.sku{font-size:16px;letter-spacing:1px;margin-top:4px;}'
+    + '.price{font-size:18px;font-weight:bold;margin-top:2px;}'
+    + '</style></head><body>'
+    + '<div class="label">'
+    + '<h2>' + escapeHtml(p.name) + '</h2>'
+    + '<div class="sku">' + p.sku + '</div>'
+    + '<div class="price">' + fmtMoney(p.price) + '</div>'
+    + '<img src="' + qrUrl(p.sku) + '" width="200" height="200" alt="QR">'
+    + '</div>'
+    + '</body></html>';
   w.document.open();
   w.document.write(html);
   w.document.close();
@@ -1019,12 +1087,17 @@ function showShiftResult(d){
   var min = Number(d.workMinutes) || 0;
   var hours = Math.floor(min / 60);
   var mins = min % 60;
+  var hoursLabel = min > 0 ? ((hours ? hours + ' ч ' : '') + mins + ' мин') : '0 мин';
+  if(d.workHours !== undefined && d.workHours !== null) hoursLabel += ' (' + d.workHours + ' ч)';
+  var startStr = ((d.openDate || '') + ' ' + (d.openTime || '')).trim();
   var html = ''
+    + line('▶️ Начало смены', startStr || '—')
+    + line('⏹️ Конец смены', (d.date || '') + ' ' + (d.time || '') )
     + line('💵 Наличные', fmtMoney(d.cashTotal))
     + line('💳 Безнал', fmtMoney(d.nonCashTotal))
     + line('💰 Общая выручка', fmtMoney(d.revenue))
     + line('📦 Продано товаров', String(Number(d.count) || 0) + ' шт')
-    + line('⏱ Время работы', (hours ? hours + ' ч ' : '') + mins + ' мин')
+    + line('⏱ Время работы', hoursLabel)
     + line('🏆 Топ продаж', escapeHtml(String(d.topSales || 'Нет продаж')));
   $('shiftResultBody').innerHTML = html;
   $('modalShiftResult').classList.add('show');
@@ -1037,6 +1110,9 @@ function line(label, val){
 // ═══ НАСТРОЙКИ / СТАТУС ═══
 function setupSettings(){
   $('btnSyncProducts').addEventListener('click', syncProductsToSheet);
+  $('btnShiftResultOk').addEventListener('click', function(){
+    $('modalShiftResult').classList.remove('show');
+  });
 }
 
 function checkSheetStatus(){
@@ -1064,7 +1140,8 @@ function syncProductsToSheet(){
   });
 }
 
-function refreshProductsFromSheet(){
+function refreshProductsFromSheet(silent){
+  if(!silent){ showToast('⏳ Загружаю товары из таблицы...'); }
   return apiGet('products').then(function(d){
     if(d && d.success && d.data && d.data.length){
       var fresh = [];
@@ -1082,11 +1159,13 @@ function refreshProductsFromSheet(){
         products = fresh;
         saveData();
         renderProducts();
-        showToast('🔄 Товары обновлены из таблицы: ' + fresh.length);
+        if(!silent){ showToast('🔄 Товары обновлены из таблицы: ' + fresh.length); }
       }
       return fresh;
     }
-  }).catch(function(){});
+  }).catch(function(){
+    if(!silent){ showToast('❌ Не удалось загрузить товары (нет интернета)'); }
+  });
 }
 
 })();
