@@ -403,6 +403,9 @@ function setupScan(){
 
 function toggleCamera(){
   if(stream){ stopCamera(); return; }
+  // ручное включение — сбрасываем счётчики неудач
+  hardRestartTimes = [];
+  softRecoverTimes = [];
   startCamera();
 }
 
@@ -418,6 +421,7 @@ function startCamera(){
   video.setAttribute('muted', 'true');
   video.muted = true;
   video.volume = 0;
+  video.setAttribute('autoplay', 'true');
   return navigator.mediaDevices.getUserMedia({
     video: { facingMode: { ideal: 'environment' } },
     audio: false
@@ -429,18 +433,17 @@ function startCamera(){
     $('btnStartCamera').textContent = '⏹ Выключить камеру';
     var track = s.getVideoTracks()[0];
     if(track && track.addEventListener){
-      // Safari сам убивает трек при звонке/сворачивании — ловим и перезапускаем
-      track.addEventListener('ended', onTrackEnded);
-      track.addEventListener('mute', function(){
-        setTimeout(function(){
-          var tr = stream ? stream.getVideoTracks()[0] : null;
-          if(tr && tr.muted === true) onTrackEnded();
-        }, 1500);
+      track.addEventListener('ended', function(){
+        if(stream) onTrackEnded();
       });
+      // ВАЖНО: событие 'mute' на iOS срабатывает ЛОЖНО в момент старта потока —
+      // не реагируем на него, о «чёрном экране» судим только по реальным кадрам
     }
-    lastFrameTime = -1;
-    frozenChecks = 0;
-    cameraRestartCount = 0;
+    frameFreshTs = 0;
+    frozenStrikes = 0;
+    notReadyStrikes = 0;
+    lastCT = -1;
+    softBusy = false;
     var pp = video.play();
     if(pp && pp.catch){ pp.catch(function(){}); }
     // страховка: если play() не стартовал сразу — повторяем по canplay
@@ -449,6 +452,7 @@ function startCamera(){
       var p2 = video.play();
       if(p2 && p2.catch) p2.catch(function(){});
     });
+    startFrameTracking();
     startScanning();
     armWatchdog();
   }).catch(function(err){
@@ -458,6 +462,24 @@ function startCamera(){
     else showToast('❌ Ошибка камеры: ' + (err && err.message ? err.message : err));
     stopCamera();
   });
+}
+
+// Точный учёт кадров: iOS поддерживает requestVideoFrameCallback — событие на
+// КАЖДЫЙ реально отрисованный кадр. Лучший детектор «чёрного экрана».
+var vfcSupported = false;
+var frameFreshTs = 0;
+
+function startFrameTracking(){
+  var video = $('video');
+  if(video && typeof video.requestVideoFrameCallback === 'function'){
+    vfcSupported = true;
+    var cb = function(){
+      if(!stream) return;
+      frameFreshTs = Date.now();
+      video.requestVideoFrameCallback(cb);
+    };
+    video.requestVideoFrameCallback(cb);
+  }
 }
 
 function startScanning(){
@@ -516,33 +538,85 @@ function scanLoopZXing(reader){
   setTimeout(function(){ scanLoopZXing(reader); }, 300);
 }
 
-// ── Watchdog камеры: ловит «чёрный экран»/заморозку и сам перезапускает ──
+// ── Watchdog камеры: мягкое и жёсткое восстановление ──
+// Мягкое: просто переподключаем существующий поток к <video> — камеру не рушим,
+// поэтому iOS не «занимается» и не возвращает мёртвый поток.
+// Жёсткое: полный stop/start getUserMedia, не чаще раза в 8 сек, максимум 3 раза.
 var watchdogTimer = null;
-var cameraRestartCount = 0;
-var lastFrameTime = -1;
-var frozenChecks = 0;
+var frozenStrikes = 0;
+var notReadyStrikes = 0;
+var lastCT = -1;
+var softRecoverTimes = [];
+var hardRestartTimes = [];
+var softBusy = false;
 
 function clearWatchdog(){
   if(watchdogTimer){ clearTimeout(watchdogTimer); watchdogTimer = null; }
 }
 
-function onTrackEnded(){
-  if(!stream) return;
-  stopCamera();
-  cameraRestartCount++;
-  if(cameraRestartCount > 5){
-    showToast('⚠️ Камера нестабильна на этом устройстве. Вводите артикул вручную.');
+function softRecover(){
+  if(!stream || softBusy) return;
+  var nowTs = Date.now();
+  softRecoverTimes.push(nowTs);
+  softRecoverTimes = softRecoverTimes.filter(function(t){ return nowTs - t < 30000; });
+  // 3 мягких попытки за 30 сек = камера реально сломалась → жёсткий перезапуск
+  if(softRecoverTimes.length > 2){ hardRecover(); return; }
+  softBusy = true;
+  showToast('⚠️ Восстанавливаю картинку камеры...');
+  var video = $('video');
+  try{
+    video.srcObject = null;
+    setTimeout(function(){
+      if(stream){
+        video.srcObject = stream;
+        var pp = video.play();
+        if(pp && pp.catch) pp.catch(function(){});
+        if(vfcSupported) startFrameTracking();
+      }
+      frameFreshTs = 0;
+      frozenStrikes = 0;
+      lastCT = -1;
+      softBusy = false;
+    }, 400);
+  }catch(e){
+    softBusy = false;
+    hardRecover();
+  }
+}
+
+function hardRecover(){
+  var nowTs = Date.now();
+  // защита от цикла: не перезапускаем чаще раза в 8 сек
+  if(hardRestartTimes.length > 0 && nowTs - hardRestartTimes[hardRestartTimes.length - 1] < 8000){
+    armWatchdog();
     return;
   }
-  showToast('⚠️ Камера отключилась, перезапускаю (' + cameraRestartCount + '/5)...');
-  setTimeout(startCamera, 900);
+  hardRestartTimes.push(nowTs);
+  hardRestartTimes = hardRestartTimes.filter(function(t){ return nowTs - t < 60000; });
+  if(hardRestartTimes.length > 3){
+    stopCamera();
+    showToast('⚠️ Камера не запустилась после 3 попыток. Нажмите «Включить камеру» или вводите артикул вручную.');
+    return;
+  }
+  showToast('⚠️ Камера зависла, перезапускаю (' + hardRestartTimes.length + '/3)...');
+  stopCamera();
+  setTimeout(startCamera, 1500);
+}
+
+function onTrackEnded(){
+  // iOS убивает трек при звонке или сворачивании приложения
+  if(!stream) return;
+  stopCamera();
+  hardRecover();
 }
 
 function onVisibility(){
   if(document.visibilityState !== 'visible') return;
   var tr = stream ? stream.getVideoTracks()[0] : null;
-  if(!tr || tr.readyState !== 'live') onTrackEnded();
-  else armWatchdog();
+  if(!tr || tr.readyState !== 'live'){ hardRecover(); return; }
+  // вернулись на вкладку — iOS мог «заморозить» картинку, мягко будим
+  softRecover();
+  armWatchdog();
 }
 
 function armWatchdog(){
@@ -555,24 +629,27 @@ function armWatchdog(){
       return;
     }
     if(video && video.readyState >= 2 && video.videoWidth > 0){
-      var t = video.currentTime;
-      if(t === lastFrameTime){
-        frozenChecks++;
+      if(vfcSupported){
+        // кадры реально отрисовываются?
+        if(frameFreshTs > 0 && Date.now() - frameFreshTs > 5000){
+          softRecover();
+          return;
+        }
+        frozenStrikes = 0;
       } else {
-        frozenChecks = 0;
-        lastFrameTime = t;
-        cameraRestartCount = 0;
+        var t = video.currentTime;
+        if(t === lastCT){ frozenStrikes++; } else { frozenStrikes = 0; lastCT = t; }
+        // картинка не обновляется ~9 секунд → «чёрный экран», мягкое лечение
+        if(frozenStrikes >= 3){
+          softRecover();
+          return;
+        }
       }
-      // картинка не обновляется 6+ секунд → значит «чёрный экран», перезапуск
-      if(frozenChecks >= 2){
-        onTrackEnded();
-        return;
-      }
+      notReadyStrikes = 0;
     } else {
-      cameraRestartCount++;
-      if(cameraRestartCount > 3){
-        clearWatchdog();
-        showToast('⚠️ Камера не запустилась. Вводите артикул вручную.');
+      notReadyStrikes++;
+      if(notReadyStrikes >= 4){
+        hardRecover();
         return;
       }
     }
@@ -588,6 +665,11 @@ function stopCamera(){
     for(var i=0;i<tracks.length;i++){ try{ tracks[i].stop(); }catch(e){} }
     stream = null;
   }
+  frameFreshTs = 0;
+  frozenStrikes = 0;
+  notReadyStrikes = 0;
+  lastCT = -1;
+  softBusy = false;
   var video = $('video');
   if(video){ video.srcObject = null; video.classList.add('hidden'); }
   $('scanPlaceholder').classList.remove('hidden');
