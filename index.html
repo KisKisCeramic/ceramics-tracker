@@ -22,9 +22,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .tab.active{color:var(--primary);font-weight:600;}.tab-icon{font-size:20px;display:block;margin-bottom:2px;}
 .card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06);}
 .card-title{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--primary);}
-.scan-area{background:#1a1a1a;border-radius:12px;height:220px;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;margin-bottom:12px;overflow:hidden;position:relative;}
-.scan-area video{width:100%;height:100%;object-fit:cover;}
-.scan-placeholder{text-align:center;padding:20px;color:#aaa;}
+.scan-area{background:#1a1a1a;border-radius:12px;height:220px;margin-bottom:12px;overflow:hidden;position:relative;}
+.scan-area video{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:0;
+}
+.scan-placeholder{
+  position:absolute;inset:0;z-index:1;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:20px;color:#aaa;font-size:14px;background:#1a1a1a;
+  transition:opacity 0.2s;cursor:pointer;
+}
+.scan-area.camera-on .scan-placeholder{opacity:0;pointer-events:none;}
 .scan-result{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px;border:2px solid var(--success);display:none;}
 .scan-result.show{display:block;}
 .scan-result .sku{font-size:12px;color:var(--muted);}.scan-result .name{font-size:18px;font-weight:600;margin:4px 0;}
@@ -90,10 +98,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <!-- Вкладка: Скан -->
   <div id="tab-scan" class="tab-content">
     <div class="scan-area" id="scanArea">
-      <div class="scan-placeholder" id="scanPlaceholder">📷 Камера не запущена<br><small>Обычно включается сама</small></div>
-      <video id="video" class="hidden" autoplay playsinline muted></video>
+      <div class="scan-placeholder" id="scanPlaceholder">📷 Камера не запущена<br><small>Нажмите «Включить камеру» или «Сделать фото»</small></div>
+      <video id="video" autoplay playsinline muted webkit-playsinline disablepictureinpicture></video>
     </div>
     <button class="btn btn-secondary" id="btnStartCamera">📷 Включить камеру</button>
+    <button class="btn btn-secondary" id="btnTakePhoto">📸 Сделать фото QR</button>
     <div class="card" style="margin-top:12px;">
       <div class="card-title">Или введите артикул вручную</div>
       <div class="search-box"><input type="text" id="manualSku" placeholder="Например: KM-001" autocomplete="off"></div>
@@ -271,6 +280,7 @@ var sales = [];
 var currentScan = null;
 var stream = null;
 var scanning = false;
+var zxingBusy = false;
 var currentShiftId = null;
 var pendingShiftCheck = false;
 
@@ -364,7 +374,6 @@ function init(){
   checkSheetStatus();
   refreshProductsFromSheet(true);
   checkOpenShiftOnServer();
-  document.addEventListener('visibilitychange', onVisibility);
   // Камера стартует автоматически на вкладке Скан (по клику пользователя — иначе браузер заблокирует)
 }
 
@@ -393,19 +402,15 @@ function setupTabs(){
 // ═══ КАМЕРА / СКАН ═══
 function setupScan(){
   $('btnStartCamera').addEventListener('click', toggleCamera);
+  $('btnTakePhoto').addEventListener('click', takePhoto);
   $('btnManualFind').addEventListener('click', manualFind);
   $('manualSku').addEventListener('keydown', function(e){ if(e.key === 'Enter') manualFind(); });
   $('btnSold').addEventListener('click', confirmSale);
   $('btnCancel').addEventListener('click', cancelScan);
-  // Автостарт камеры при первом клике в любом месте области сканирования
-  $('scanPlaceholder').addEventListener('click', function(){ if(!stream) toggleCamera(); });
 }
 
 function toggleCamera(){
   if(stream){ stopCamera(); return; }
-  // ручное включение — сбрасываем счётчики неудач
-  hardRestartTimes = [];
-  softRecoverTimes = [];
   startCamera();
 }
 
@@ -416,45 +421,26 @@ function startCamera(){
   }
   if(stream) return Promise.resolve();
   var video = $('video');
-  // iOS (Safari): атрибуты выставляем ДО подключения потока — иначе чёрный экран
-  video.setAttribute('playsinline', 'true');
-  video.setAttribute('muted', 'true');
+  var area = $('scanArea');
+  // iOS (Safari): атрибуты ДО потока, иначе чёрный экран / выход на весь экран
+  video.setAttribute('webkit-playsinline', '');
+  video.setAttribute('playsinline', '');
+  video.setAttribute('muted', '');
+  video.setAttribute('autoplay', '');
+  video.setAttribute('disablepictureinpicture', '');
   video.muted = true;
   video.volume = 0;
-  video.setAttribute('autoplay', 'true');
+  // Видео уже в DOM и отрисовано (ничего не display:none) — можно привязывать поток
   return navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: 'environment' } },
+    video: { facingMode: { exact: 'environment' } },
     audio: false
   }).then(function(s){
     stream = s;
     video.srcObject = stream;
-    video.classList.remove('hidden');
-    $('scanPlaceholder').classList.add('hidden');
+    area.classList.add('camera-on');
     $('btnStartCamera').textContent = '⏹ Выключить камеру';
-    var track = s.getVideoTracks()[0];
-    if(track && track.addEventListener){
-      track.addEventListener('ended', function(){
-        if(stream) onTrackEnded();
-      });
-      // ВАЖНО: событие 'mute' на iOS срабатывает ЛОЖНО в момент старта потока —
-      // не реагируем на него, о «чёрном экране» судим только по реальным кадрам
-    }
-    frameFreshTs = 0;
-    frozenStrikes = 0;
-    notReadyStrikes = 0;
-    lastCT = -1;
-    softBusy = false;
-    var pp = video.play();
-    if(pp && pp.catch){ pp.catch(function(){}); }
-    // страховка: если play() не стартовал сразу — повторяем по canplay
-    video.addEventListener('canplay', function once(){
-      video.removeEventListener('canplay', once);
-      var p2 = video.play();
-      if(p2 && p2.catch) p2.catch(function(){});
-    });
-    startFrameTracking();
     startScanning();
-    armWatchdog();
+    startWatchdog();
   }).catch(function(err){
     console.error('Camera error:', err);
     if(err && err.name === 'NotAllowedError') showToast('❌ Доступ к камере запрещён. Разрешите его в настройках браузера.');
@@ -464,53 +450,104 @@ function startCamera(){
   });
 }
 
-// Точный учёт кадров: iOS поддерживает requestVideoFrameCallback — событие на
-// КАЖДЫЙ реально отрисованный кадр. Лучший детектор «чёрного экрана».
-var vfcSupported = false;
-var frameFreshTs = 0;
-
-function startFrameTracking(){
-  var video = $('video');
-  if(video && typeof video.requestVideoFrameCallback === 'function'){
-    vfcSupported = true;
-    var cb = function(){
-      if(!stream) return;
-      frameFreshTs = Date.now();
-      video.requestVideoFrameCallback(cb);
-    };
-    video.requestVideoFrameCallback(cb);
+function stopCamera(){
+  scanning = false;
+  stopWatchdog();
+  if(stream){
+    var tracks = stream.getTracks ? stream.getTracks() : [];
+    for(var i=0;i<tracks.length;i++){ try{ tracks[i].stop(); }catch(e){} }
+    stream = null;
   }
+  var video = $('video');
+  var area = $('scanArea');
+  if(video){ video.srcObject = null; }
+  area.classList.remove('camera-on');
+  $('btnStartCamera').textContent = '📷 Включить камеру';
+}
+
+// ─── Нативное фото с iPhone (надёжный фолбэк, когда stream падает) ───
+var fileInput = null;
+function ensureFileInput(){
+  if(fileInput) return fileInput;
+  fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.setAttribute('capture', 'environment');  // iPhone: сразу задняя камера
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', function(e){
+    var f = e.target.files && e.target.files[0];
+    if(!f) return;
+    readQrFromFile(f);
+    e.target.value = '';
+  });
+  document.body.appendChild(fileInput);
+  return fileInput;
+}
+
+function readQrFromFile(file){
+  if(!file) return;
+  showToast('⏳ Читаю QR из фото...');
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    var img = new Image();
+    img.onload = function(){
+      if('BarcodeDetector' in window){
+        var detector = null;
+        try{ detector = new window.BarcodeDetector({ formats: ['qr_code'] }); }
+        catch(e){ detector = new window.BarcodeDetector(); }
+        detector.detect(img).then(function(codes){
+          if(codes && codes.length > 0 && codes[0].rawValue){
+            handleScan(codes[0].rawValue);
+            showToast('✅ QR распознан');
+          } else {
+            showToast('❌ QR-код не найден на фото');
+          }
+        }).catch(function(){ showToast('❌ Не удалось прочитать QR с фото'); });
+      } else if(typeof window.ZXing !== 'undefined'){
+        var readerZX = new window.ZXing.BrowserQRCodeReader();
+        readerZX.decodeFromImageElement(img).then(function(result){
+          if(result && result.getText()){ handleScan(result.getText()); showToast('✅ QR распознан'); }
+          else showToast('❌ QR-код не найден на фото');
+        }).catch(function(){ showToast('❌ Не удалось прочитать QR с фото'); });
+      } else {
+        showToast('⚠️ Автосканирование не поддерживается. Вводите артикул вручную.');
+      }
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function takePhoto(){
+  ensureFileInput();
+  fileInput.click();
 }
 
 function startScanning(){
+  if(scanning) return;  // защита от наслаивания повторных вызовов
+  scanning = true;
+  var video = $('video');
   if('BarcodeDetector' in window){
     var detector = null;
-    try{
-      detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-    }catch(e){
-      detector = new window.BarcodeDetector();
-    }
-    scanning = true;
+    try{ detector = new window.BarcodeDetector({ formats: ['qr_code'] }); }
+    catch(e){ detector = new window.BarcodeDetector(); }
     scanLoopDetector(detector);
   } else if(typeof window.ZXing !== 'undefined'){
     var reader = new window.ZXing.BrowserQRCodeReader();
-    scanning = true;
     scanLoopZXing(reader);
   } else {
-    // Пробуем подгрузить ZXing динамически
     var script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
     script.onload = function(){
       if(typeof window.ZXing !== 'undefined'){
         var reader2 = new window.ZXing.BrowserQRCodeReader();
-        scanning = true;
         scanLoopZXing(reader2);
       } else {
-        showToast('⚠️ Автосканирование не поддерживается. Вводите артикул вручную.');
+        showToast('⚠️ Автосканирование не поддерживается. Фото и ручной ввод работают.');
       }
     };
     script.onerror = function(){
-      showToast('⚠️ Автосканирование недоступно. Вводите артикул вручную.');
+      showToast('⚠️ Автосканирование недоступно. Фото и ручной ввод работают.');
     };
     document.head.appendChild(script);
   }
@@ -528,152 +565,19 @@ function scanLoopDetector(detector){
 }
 
 function scanLoopZXing(reader){
-  if(!scanning) return;
+  if(!scanning || zxingBusy) return;  // защита от наслаивания параллельных декодов
+  zxingBusy = true;
   var video = $('video');
   if(video && video.readyState >= 2 && video.videoWidth > 0){
     reader.decodeFromVideoElement(video).then(function(result){
       if(result && result.getText()) handleScan(result.getText());
-    }).catch(function(){});
+    }).catch(function(){}).finally(function(){
+      zxingBusy = false;
+    });
+  } else {
+    zxingBusy = false;
   }
   setTimeout(function(){ scanLoopZXing(reader); }, 300);
-}
-
-// ── Watchdog камеры: мягкое и жёсткое восстановление ──
-// Мягкое: просто переподключаем существующий поток к <video> — камеру не рушим,
-// поэтому iOS не «занимается» и не возвращает мёртвый поток.
-// Жёсткое: полный stop/start getUserMedia, не чаще раза в 8 сек, максимум 3 раза.
-var watchdogTimer = null;
-var frozenStrikes = 0;
-var notReadyStrikes = 0;
-var lastCT = -1;
-var softRecoverTimes = [];
-var hardRestartTimes = [];
-var softBusy = false;
-
-function clearWatchdog(){
-  if(watchdogTimer){ clearTimeout(watchdogTimer); watchdogTimer = null; }
-}
-
-function softRecover(){
-  if(!stream || softBusy) return;
-  var nowTs = Date.now();
-  softRecoverTimes.push(nowTs);
-  softRecoverTimes = softRecoverTimes.filter(function(t){ return nowTs - t < 30000; });
-  // 3 мягких попытки за 30 сек = камера реально сломалась → жёсткий перезапуск
-  if(softRecoverTimes.length > 2){ hardRecover(); return; }
-  softBusy = true;
-  showToast('⚠️ Восстанавливаю картинку камеры...');
-  var video = $('video');
-  try{
-    video.srcObject = null;
-    setTimeout(function(){
-      if(stream){
-        video.srcObject = stream;
-        var pp = video.play();
-        if(pp && pp.catch) pp.catch(function(){});
-        if(vfcSupported) startFrameTracking();
-      }
-      frameFreshTs = 0;
-      frozenStrikes = 0;
-      lastCT = -1;
-      softBusy = false;
-    }, 400);
-  }catch(e){
-    softBusy = false;
-    hardRecover();
-  }
-}
-
-function hardRecover(){
-  var nowTs = Date.now();
-  // защита от цикла: не перезапускаем чаще раза в 8 сек
-  if(hardRestartTimes.length > 0 && nowTs - hardRestartTimes[hardRestartTimes.length - 1] < 8000){
-    armWatchdog();
-    return;
-  }
-  hardRestartTimes.push(nowTs);
-  hardRestartTimes = hardRestartTimes.filter(function(t){ return nowTs - t < 60000; });
-  if(hardRestartTimes.length > 3){
-    stopCamera();
-    showToast('⚠️ Камера не запустилась после 3 попыток. Нажмите «Включить камеру» или вводите артикул вручную.');
-    return;
-  }
-  showToast('⚠️ Камера зависла, перезапускаю (' + hardRestartTimes.length + '/3)...');
-  stopCamera();
-  setTimeout(startCamera, 1500);
-}
-
-function onTrackEnded(){
-  // iOS убивает трек при звонке или сворачивании приложения
-  if(!stream) return;
-  stopCamera();
-  hardRecover();
-}
-
-function onVisibility(){
-  if(document.visibilityState !== 'visible') return;
-  var tr = stream ? stream.getVideoTracks()[0] : null;
-  if(!tr || tr.readyState !== 'live'){ hardRecover(); return; }
-  // вернулись на вкладку — iOS мог «заморозить» картинку, мягко будим
-  softRecover();
-  armWatchdog();
-}
-
-function armWatchdog(){
-  clearWatchdog();
-  watchdogTimer = setTimeout(function(){
-    var video = $('video');
-    var track = stream ? stream.getVideoTracks()[0] : null;
-    if(!stream || !track || track.readyState !== 'live'){
-      onTrackEnded();
-      return;
-    }
-    if(video && video.readyState >= 2 && video.videoWidth > 0){
-      if(vfcSupported){
-        // кадры реально отрисовываются?
-        if(frameFreshTs > 0 && Date.now() - frameFreshTs > 5000){
-          softRecover();
-          return;
-        }
-        frozenStrikes = 0;
-      } else {
-        var t = video.currentTime;
-        if(t === lastCT){ frozenStrikes++; } else { frozenStrikes = 0; lastCT = t; }
-        // картинка не обновляется ~9 секунд → «чёрный экран», мягкое лечение
-        if(frozenStrikes >= 3){
-          softRecover();
-          return;
-        }
-      }
-      notReadyStrikes = 0;
-    } else {
-      notReadyStrikes++;
-      if(notReadyStrikes >= 4){
-        hardRecover();
-        return;
-      }
-    }
-    armWatchdog();
-  }, 3000);
-}
-
-function stopCamera(){
-  scanning = false;
-  clearWatchdog();
-  if(stream){
-    var tracks = stream.getTracks ? stream.getTracks() : [];
-    for(var i=0;i<tracks.length;i++){ try{ tracks[i].stop(); }catch(e){} }
-    stream = null;
-  }
-  frameFreshTs = 0;
-  frozenStrikes = 0;
-  notReadyStrikes = 0;
-  lastCT = -1;
-  softBusy = false;
-  var video = $('video');
-  if(video){ video.srcObject = null; video.classList.add('hidden'); }
-  $('scanPlaceholder').classList.remove('hidden');
-  $('btnStartCamera').textContent = '📷 Включить камеру';
 }
 
 function handleScan(code){
@@ -1250,6 +1154,71 @@ function refreshProductsFromSheet(silent){
   });
 }
 
+// ═══ КАМЕРА: WATCHDOG (rVFC + currentTime fallback) ═══
+var watchdogTimer = null;
+var frameFreshTs = 0;
+var lastCT = -1;
+var vfcSupported = false;
+
+function startWatchdog(){
+  stopWatchdog();
+  var video = $('video');
+  if(video && typeof video.requestVideoFrameCallback === 'function'){
+    vfcSupported = true;
+    var cb = function(){
+      if(!stream) return;
+      frameFreshTs = Date.now();
+      video.requestVideoFrameCallback(cb);
+    };
+    video.requestVideoFrameCallback(cb);
+  }
+  watchdogTimer = setInterval(function(){
+    var video = $('video');
+    var track = stream ? stream.getVideoTracks()[0] : null;
+    if(!stream || !track || track.readyState !== 'live'){
+      stopCamera();
+      return;
+    }
+    if(vfcSupported){
+      if(frameFreshTs > 0 && Date.now() - frameFreshTs > 5000){
+        stopCamera();
+        showToast('⚠️ Камера остановилась. Нажмите «Включить камеру».');
+        return;
+      }
+    } else {
+      if(video && video.readyState >= 2){
+        var t = video.currentTime;
+        lastCT = t;
+      }
+    }
+  }, 3000);
+}
+
+function stopWatchdog(){
+  if(watchdogTimer){ clearInterval(watchdogTimer); watchdogTimer = null; }
+  vfcSupported = false;
+  frameFreshTs = 0;
+  lastCT = -1;
+}
+
+// ═══ ДИАГНОСТИКА ═══
+window.kisDebug = {
+  camState: function(){
+    var video = $('video');
+    var track = stream ? stream.getVideoTracks()[0] : null;
+    return {
+      stream: !!stream,
+      trackReady: track ? track.readyState : null,
+      videoReadyState: video ? video.readyState : null,
+      videoWidth: video ? video.videoWidth : 0,
+      videoCurrentTime: video ? video.currentTime : -1,
+      frameFreshTs: frameFreshTs,
+      vfcSupported: typeof video.requestVideoFrameCallback === 'function',
+      scanning: scanning,
+      zxingBusy: zxingBusy
+    };
+  }
+};
 })();
 </script>
 </body>
