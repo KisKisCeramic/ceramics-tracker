@@ -295,7 +295,7 @@ function showToast(msg){
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(function(){ t.classList.remove('show'); }, 7000);
+  t._timer = setTimeout(function(){ t.classList.remove('show'); }, 5000);
 }
 
 function beep(){
@@ -310,6 +310,24 @@ function beep(){
     g.gain.value = 0.08;
     o.start();
     o.stop(ctx.currentTime + 0.12);
+  }catch(e){}
+}
+
+function dangerBeep(){
+  try{
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    var ctx = new Ctx();
+    var o1 = ctx.createOscillator();
+    var o2 = ctx.createOscillator();
+    var g = ctx.createGain();
+    o1.connect(g); o2.connect(g); g.connect(ctx.destination);
+    o1.frequency.value = 900;
+    o2.frequency.value = 1100;
+    g.gain.value = 0.15;
+    o1.start(); o2.start();
+    o1.stop(ctx.currentTime + 0.15);
+    o2.stop(ctx.currentTime + 0.15);
   }catch(e){}
 }
 
@@ -618,6 +636,7 @@ function cancelScan(){
 // ═══ ПРОДАЖА: ПРОВЕРКА СМЕНЫ ═══
 function confirmSale(){
   if(!currentShiftId){
+    dangerBeep();
     showToast('❌ Сначала откройте смену! (Вкладка «Продажи»)');
     return;
   }
